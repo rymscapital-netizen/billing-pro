@@ -12,15 +12,24 @@ export async function GET() {
     process.env.SUPABASE_SERVICE_KEY!
   )
 
-  const { data, error } = await sb
+  // Test 1: シンプルクエリ
+  const { data: simple, error: e1 } = await sb
     .from("Invoice")
     .select("id, invoiceNumber, issuerCompanyId, companyId, status")
     .eq("issuerCompanyId", u.companyId)
 
+  // Test 2: 実際のinvoices GETと同じクエリ
+  const selectFields = "*, company:Company(id,name), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!Invoice_assignedUserId_fkey(id,name)"
+  const { data: full, error: e2 } = await sb
+    .from("Invoice")
+    .select(selectFields)
+    .eq("issuerCompanyId", u.companyId)
+    .order("dueDate", { ascending: true })
+
   return NextResponse.json({
-    sessionCompanyId: u.companyId,
-    sessionRole: u.role,
-    invoices: data,
-    error: error?.message,
+    companyId: u.companyId,
+    role: u.role,
+    simple: { count: simple?.length, error: e1?.message },
+    full:   { count: full?.length,   error: e2?.message },
   })
 }
