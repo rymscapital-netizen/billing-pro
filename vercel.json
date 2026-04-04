@@ -1,6 +1,6 @@
 {
   "installCommand": "npm install --legacy-peer-deps",
-  "buildCommand": "npx prisma generate --no-engine && next build",
+  "buildCommand": "npx prisma generate && next build",
   "crons": [
     {
       "path": "/api/cron/overdue",
