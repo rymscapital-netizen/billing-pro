@@ -4,14 +4,15 @@ import { NextRequest, NextResponse } from "next/server"
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const u = session.user as any
 
   if (u.role === "CLIENT") {
-    const inv = await prisma.invoice.findUnique({ where: { id: params.id }, select: { issuerCompanyId: true } }) as any
+    const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
     if (!inv || inv.issuerCompanyId !== u.companyId)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -20,7 +21,7 @@ export async function POST(
 
   const [payment, invoice] = await prisma.$transaction([
     prisma.invoicePayment.update({
-      where: { invoiceId: params.id },
+      where: { invoiceId: id },
       data: {
         clearStatus:     "CLEARED",
         clearedAt:       new Date(body.clearedAt),
@@ -29,7 +30,7 @@ export async function POST(
       },
     }),
     prisma.invoice.update({
-      where: { id: params.id },
+      where: { id },
       data: { status: "CLEARED" },
     }),
   ])

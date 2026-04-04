@@ -9,8 +9,9 @@ const schema = z.object({
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session || (session.user as any).role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -18,7 +19,6 @@ export async function POST(
 
   const body   = schema.parse(await req.json())
   const paidAt = new Date(body.paidAt).toISOString()
-  const id     = params.id
 
   await prisma.$executeRawUnsafe(
     `UPDATE "ReceivedInvoice" SET status = 'PAID', "paidAt" = '${paidAt}', "updatedAt" = NOW() WHERE id = '${id}'`

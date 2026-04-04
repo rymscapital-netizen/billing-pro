@@ -4,15 +4,16 @@ import { NextRequest, NextResponse } from "next/server"
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const u = session.user as any
 
   const invoice = await (prisma.invoice.findUnique as any)({
-    where: { id: params.id },
+    where: { id },
     include: {
       company: true,
       payments: true,
@@ -38,7 +39,7 @@ export async function GET(
   let linkedReceivedInvoices: any[] = []
   if (u.role === "ADMIN") {
     linkedReceivedInvoices = await prisma.$queryRawUnsafe(
-      `SELECT * FROM "ReceivedInvoice" WHERE "invoiceId" = '${params.id}' ORDER BY "dueDate" ASC`
+      `SELECT * FROM "ReceivedInvoice" WHERE "invoiceId" = '${id}' ORDER BY "dueDate" ASC`
     )
   }
 
@@ -47,15 +48,16 @@ export async function GET(
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const u = session.user as any
 
   // 発行者のみ編集可
   if (u.role === "CLIENT") {
-    const inv = await prisma.invoice.findUnique({ where: { id: params.id }, select: { issuerCompanyId: true } }) as any
+    const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
     if (!inv || inv.issuerCompanyId !== u.companyId)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -75,7 +77,7 @@ export async function PATCH(
   }
 
   const updated = await prisma.invoice.update({
-    where: { id: params.id },
+    where: { id },
     data,
     include: { company: true, payments: true, profit: true },
   })
@@ -85,23 +87,24 @@ export async function PATCH(
 
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const u = session.user as any
 
   // 発行者のみ削除可
   if (u.role === "CLIENT") {
-    const inv = await prisma.invoice.findUnique({ where: { id: params.id }, select: { issuerCompanyId: true } }) as any
+    const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
     if (!inv || inv.issuerCompanyId !== u.companyId)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  await prisma.invoicePayment.deleteMany({ where: { invoiceId: params.id } })
-  await prisma.invoiceProfit.deleteMany({ where: { invoiceId: params.id } })
-  await prisma.ocrJob.deleteMany({ where: { invoiceId: params.id } })
-  await prisma.invoice.delete({ where: { id: params.id } })
+  await prisma.invoicePayment.deleteMany({ where: { invoiceId: id } })
+  await prisma.invoiceProfit.deleteMany({ where: { invoiceId: id } })
+  await prisma.ocrJob.deleteMany({ where: { invoiceId: id } })
+  await prisma.invoice.delete({ where: { id } })
 
   return NextResponse.json({ success: true })
 }

@@ -6,8 +6,9 @@ import { NextRequest, NextResponse } from "next/server"
 // POST /api/invoices/[id]/upload-pdf
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -15,7 +16,7 @@ export async function POST(
 
   // 請求書の存在確認
   const invoice = await prisma.invoice.findUnique({
-    where: { id: params.id },
+    where: { id },
     select: { invoiceNumber: true },
   })
   if (!invoice) {
@@ -33,7 +34,7 @@ export async function POST(
 
   // pdfUrl を DB に保存（パスのみ保存、署名URLは都度生成）
   const updated = await prisma.invoice.update({
-    where: { id: params.id },
+    where: { id },
     data: { pdfUrl: storagePath },
     select: { id: true, pdfUrl: true },
   })

@@ -7,13 +7,14 @@ import { NextRequest, NextResponse } from "next/server"
 // 署名付きURL（60分有効）を返す。取引先は自社の請求書のみ取得可能。
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const invoice = await prisma.invoice.findUnique({
-    where: { id: params.id },
+    where: { id },
     select: { companyId: true, pdfUrl: true },
   })
 

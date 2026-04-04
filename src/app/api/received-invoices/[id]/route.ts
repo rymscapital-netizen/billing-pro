@@ -47,15 +47,15 @@ const patchSchema = z.object({
 // PATCH: 紐づけ更新 or フィールド編集
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session || (session.user as any).role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const body = patchSchema.parse(await req.json())
-  const id   = params.id
 
   const before: any[] = await prisma.$queryRawUnsafe(
     `SELECT "invoiceId" FROM "ReceivedInvoice" WHERE id = '${id}'`
@@ -110,14 +110,14 @@ export async function PATCH(
 // DELETE
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session || (session.user as any).role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const id     = params.id
   const target: any[] = await prisma.$queryRawUnsafe(
     `SELECT "invoiceId" FROM "ReceivedInvoice" WHERE id = '${id}'`
   )

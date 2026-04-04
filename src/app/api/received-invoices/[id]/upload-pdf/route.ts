@@ -14,9 +14,10 @@ function getSb() {
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
     if (!session || (session.user as any).role !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -29,7 +30,7 @@ export async function POST(
     // Supabase Storage にアップロード
     const sb   = getSb()
     const ext  = file.name.split(".").pop() ?? "pdf"
-    const path = `received-invoices/${params.id}-${Date.now()}.${ext}`
+    const path = `received-invoices/${id}-${Date.now()}.${ext}`
 
     const { error: uploadError } = await sb.storage
       .from(BUCKET)
@@ -46,7 +47,7 @@ export async function POST(
 
     // pdfUrl を保存
     await prisma.$executeRawUnsafe(
-      `UPDATE "ReceivedInvoice" SET "pdfUrl" = '${path}', "updatedAt" = NOW() WHERE id = '${params.id}'`
+      `UPDATE "ReceivedInvoice" SET "pdfUrl" = '${path}', "updatedAt" = NOW() WHERE id = '${id}'`
     )
 
     return NextResponse.json({ pdfUrl: path })

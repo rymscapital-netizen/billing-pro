@@ -8,15 +8,16 @@ import { NextRequest, NextResponse } from "next/server"
 // 請求書PDFを生成してStorageに保存し、署名URLを返す
 export async function POST(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const invoice = await prisma.invoice.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: { company: true },
   })
   if (!invoice) {
@@ -52,7 +53,7 @@ export async function POST(
 
   // DBのpdfUrlを更新
   await prisma.invoice.update({
-    where: { id: params.id },
+    where: { id },
     data: { pdfUrl: storagePath },
   })
 

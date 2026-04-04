@@ -10,8 +10,9 @@ const supabase = createClient(
 // POST /api/invoices/[id]/upload-images
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params
   const session = await auth()
   if (!session || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -27,7 +28,7 @@ export async function POST(
 
   for (const file of files) {
     const ext  = file.name.split(".").pop() ?? "jpg"
-    const path = `images/${params.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+    const path = `images/${id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
     const { error } = await supabase.storage
       .from("invoices")
@@ -44,7 +45,7 @@ export async function POST(
     // InvoiceImage レコードを INSERT（生SQL で pgBouncer 回避）
     await supabase
       .from("InvoiceImage")
-      .insert({ id: crypto.randomUUID(), invoiceId: params.id, url: path, createdAt: new Date().toISOString() })
+      .insert({ id: crypto.randomUUID(), invoiceId: id, url: path, createdAt: new Date().toISOString() })
 
     uploaded.push(path)
   }
