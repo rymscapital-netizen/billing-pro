@@ -46,7 +46,8 @@ export async function POST(
   const pdfBuffer = await generateInvoicePdf(pdfData)
 
   // Supabase Storage にアップロード
-  const file = new File([pdfBuffer], `${invoice.invoiceNumber}.pdf`, {
+  const uint8Array = new Uint8Array(pdfBuffer)
+  const file = new File([uint8Array], `${invoice.invoiceNumber}.pdf`, {
     type: "application/pdf",
   })
   const storagePath = await uploadPdf(file, invoice.invoiceNumber)
