@@ -82,7 +82,7 @@ JSONのみを返し、説明文は不要です。
     await prisma.ocrJob.update({
       where: { id: job.id },
       data: {
-        extractedJson: extracted,
+        extractedJson: extracted as any,
         status: "REVIEW",
       },
     })
