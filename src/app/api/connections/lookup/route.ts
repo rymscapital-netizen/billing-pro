@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "会社名とメールアドレスを入力してください" }, { status: 400 })
   }
 
-  // 会社名完全一致（大文字小文字無視）かつ、そのメールアドレスのユーザーがその会社に存在する
+  // 1. Userのメールで検索（登録済みユーザーがいる会社）
   const user = await prisma.user.findFirst({
     where: {
       email: { equals: email.trim(), mode: "insensitive" },
@@ -24,14 +24,30 @@ export async function POST(req: NextRequest) {
     select: { companyId: true, company: { select: { id: true, name: true } } },
   })
 
-  if (!user) {
-    // 一致しない場合は「見つかりません」のみ返す（会社の存在有無を漏らさない）
+  if (user) {
+    if (user.companyId === myCompanyId) {
+      return NextResponse.json({ error: "自社への申請はできません" }, { status: 400 })
+    }
+    return NextResponse.json({ companyId: user.company!.id, companyName: user.company!.name })
+  }
+
+  // 2. Companyのemailで検索（招待済みだがまだ未登録の会社）
+  const company = await prisma.company.findFirst({
+    where: {
+      name: { equals: companyName.trim(), mode: "insensitive" },
+      email: { equals: email.trim(), mode: "insensitive" },
+      isActive: true,
+    },
+    select: { id: true, name: true },
+  })
+
+  if (!company) {
     return NextResponse.json({ error: "会社名とメールアドレスが一致する企業が見つかりませんでした" }, { status: 404 })
   }
 
-  if (user.companyId === myCompanyId) {
+  if (company.id === myCompanyId) {
     return NextResponse.json({ error: "自社への申請はできません" }, { status: 400 })
   }
 
-  return NextResponse.json({ companyId: user.company!.id, companyName: user.company!.name })
+  return NextResponse.json({ companyId: company.id, companyName: company.name })
 }
