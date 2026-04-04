@@ -10,29 +10,8 @@ function getSupabase() {
   )
 }
 
-// 管理者用：Invoice.companyId or assignedUserId でフィルタ
+// 自社が発行した請求書（売上）= issuerCompanyId でフィルタ
 async function getMonthlyPL(
-  sb: ReturnType<typeof getSupabase>,
-  start: Date, end: Date,
-  companyId?: string,
-  assignedUserId?: string,
-) {
-  let q = sb.from("Invoice")
-    .select("amount, subtotal, status, InvoiceProfit(cost, grossProfit)")
-    .gte("dueDate", start.toISOString())
-    .lte("dueDate", end.toISOString())
-    .neq("status", "DRAFT")
-
-  if (companyId)      q = (q as any).eq("companyId", companyId)
-  if (assignedUserId) q = (q as any).eq("assignedUserId", assignedUserId)
-
-  const { data, error } = await q
-  if (error) throw new Error(`getMonthlyPL: ${error.message}`)
-  return calcPL(data ?? [])
-}
-
-// 取引先用：Invoice.issuerCompanyId でフィルタ（自社が発行した請求書 = 売上）
-async function getMonthlyPLClient(
   sb: ReturnType<typeof getSupabase>,
   start: Date, end: Date,
   issuerCompanyId: string,
@@ -48,7 +27,7 @@ async function getMonthlyPLClient(
   if (assignedUserId) q = (q as any).eq("assignedUserId", assignedUserId)
 
   const { data, error } = await q
-  if (error) throw new Error(`getMonthlyPLClient: ${error.message}`)
+  if (error) throw new Error(`getMonthlyPL: ${error.message}`)
   return calcPL(data ?? [])
 }
 
@@ -96,21 +75,26 @@ export async function GET(req: Request) {
     const prevStart = startOfMonth(subMonths(now, 1))
     const prevEnd   = endOfMonth(subMonths(now, 1))
 
-    const u = session.user as any
+    const u   = session.user as any
+    const cid = u.companyId as string
 
-    // ── 管理者 ─────────────────────────────────────────────────────────────
+    // ADMIN・CLIENT 共通：自社が発行した請求書を売上として集計
+    const [prevMonth, thisMonth, nextMonth] = await Promise.all([
+      getMonthlyPL(sb, prevStart, prevEnd, cid, filterUserId),
+      getMonthlyPL(sb, msStart,   msEnd,   cid, filterUserId),
+      getMonthlyPL(sb, nextStart, nextEnd, cid, filterUserId),
+    ])
+
+    const thisMonthDue  = thisMonth.salesInc
+    const thisMonthPaid = thisMonth.paid
+
     if (u.role === "ADMIN") {
-      const [prevMonth, thisMonth, nextMonth] = await Promise.all([
-        getMonthlyPL(sb, prevStart, prevEnd, undefined, filterUserId),
-        getMonthlyPL(sb, msStart,   msEnd,   undefined, filterUserId),
-        getMonthlyPL(sb, nextStart, nextEnd, undefined, filterUserId),
-      ])
-
-      const thisMonthDue  = thisMonth.salesInc
-      const thisMonthPaid = thisMonth.paid
-
-      let overdueQ = sb.from("Invoice").select("*", { count: "exact", head: true }).eq("status", "OVERDUE")
-      let unpaidQ  = sb.from("Invoice").select("amount").in("status", ["ISSUED", "PENDING", "OVERDUE", "PAYMENT_CONFIRMED"])
+      // 自社発行の未回収・延滞・未消込
+      let overdueQ = sb.from("Invoice").select("*", { count: "exact", head: true })
+        .eq("issuerCompanyId", cid).eq("status", "OVERDUE")
+      let unpaidQ  = sb.from("Invoice").select("amount")
+        .eq("issuerCompanyId", cid)
+        .in("status", ["ISSUED", "PENDING", "OVERDUE", "PAYMENT_CONFIRMED"])
       if (filterUserId) {
         overdueQ = (overdueQ as any).eq("assignedUserId", filterUserId)
         unpaidQ  = (unpaidQ  as any).eq("assignedUserId", filterUserId)
@@ -120,6 +104,7 @@ export async function GET(req: Request) {
         { count: overdueCount },
         { count: unclearedCount },
         { data: allUnpaidRows, error: e1 },
+        // 被請求書（自社 ownerCompanyId）= 今月分の経費
         { data: rcvRows, error: e2 },
       ] = await Promise.all([
         overdueQ,
@@ -127,6 +112,7 @@ export async function GET(req: Request) {
           .eq("paymentStatus", "CONFIRMED").eq("clearStatus", "UNCLEARED"),
         unpaidQ,
         sb.from("ReceivedInvoice").select("amount, status")
+          .eq("ownerCompanyId", cid)
           .gte("dueDate", msStart.toISOString()).lte("dueDate", msEnd.toISOString()),
       ])
       if (e1) throw new Error(`allUnpaid: ${e1.message}`)
@@ -155,26 +141,12 @@ export async function GET(req: Request) {
       })
     }
 
-    // ── 取引先（CLIENT）── 管理者と同じ構造で返す ─────────────────────────
-    const cid = u.companyId as string
-
-    // 売上：自社が issuerCompanyId として発行した Invoice
-    const [prevMonth, thisMonth, nextMonth] = await Promise.all([
-      getMonthlyPLClient(sb, prevStart, prevEnd, cid, filterUserId),
-      getMonthlyPLClient(sb, msStart,   msEnd,   cid, filterUserId),
-      getMonthlyPLClient(sb, nextStart, nextEnd, cid, filterUserId),
-    ])
-
-    const thisMonthDue  = thisMonth.salesInc
-    const thisMonthPaid = thisMonth.paid
-
-    // 期限超過・未消込（自社が発行した請求書）
+    // ── 取引先（CLIENT）────────────────────────────────────────────────────
     const [
       { count: overdueCount },
       { count: unclearedCount },
       { data: allUnpaidRows, error: e1 },
       { count: nextMonthCount },
-      // 被請求書（自社 ownerCompanyId）= 今月分の経費
       { data: rcvRows, error: e2 },
     ] = await Promise.all([
       (sb.from("Invoice").select("*", { count: "exact", head: true })
