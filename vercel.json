@@ -1,5 +1,6 @@
 {
   "buildCommand": "npx prisma generate --no-engine && next build",
+  "ignoreCommand": "exit 0",
   "crons": [
     {
       "path": "/api/cron/overdue",
