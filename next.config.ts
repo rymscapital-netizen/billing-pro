@@ -1,12 +1,4 @@
 import type { NextConfig } from "next"
-import withPWA from "next-pwa"
-
-const pwaConfig = withPWA({
-  dest: "public",
-  register: true,
-  skipWaiting: true,
-  disable: process.env.NODE_ENV === "development",
-})
 
 const config: NextConfig = {
   experimental: {
@@ -33,4 +25,4 @@ const config: NextConfig = {
   },
 }
 
-export default pwaConfig(config)
+export default config
