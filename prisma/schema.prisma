@@ -8,17 +8,18 @@ datasource db {
 }
 
 model Company {
-  id              String      @id @default(cuid())
-  name            String
-  address         String?
-  tel             String?
-  email           String?
-  contactName     String?
-  corporateNumber String?
-  type            CompanyType @default(CLIENT)
-  isActive        Boolean     @default(true)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id                  String      @id @default(cuid())
+  name                String
+  address             String?
+  tel                 String?
+  email               String?
+  contactName         String?
+  corporateNumber     String?
+  type                CompanyType @default(CLIENT)
+  isActive            Boolean     @default(true)
+  createdByCompanyId  String?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
   users            User[]
   invoices         Invoice[]        @relation("InvoiceRecipient")
   issuedInvoices   Invoice[]        @relation("InvoiceIssuer")

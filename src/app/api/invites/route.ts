@@ -57,18 +57,21 @@ export async function GET(req: NextRequest) {
   const myCompanyId = (session.user as any).companyId
 
   const sb = getSb()
-  const { data: invites } = await sb
-    .from("CompanyInvite")
-    .select("id, token, expiresAt, usedAt, createdAt, companyId")
-    .eq("requestedBy", myCompanyId)   // 自社が発行したもの
-    .order("createdAt", { ascending: false })
 
-  // requestedBy カラムがない場合のフォールバック：companyId で絞り込まない（全件返す）
-  // → 本来は発行者を記録すべきだが、既存テーブル構造に合わせて companyId の直接比較で対応
-  const { data: invitesByCompany } = await sb
-    .from("CompanyInvite")
-    .select("id, token, expiresAt, usedAt, createdAt, companyId")
-    .order("createdAt", { ascending: false })
+  // 自社が作成した会社（createdByCompanyId = 自社）の招待のみ取得
+  const myCompanyIds_res = await prisma.company.findMany({
+    where: { createdByCompanyId: myCompanyId },
+    select: { id: true },
+  })
+  const myCompanyIds = myCompanyIds_res.map(c => c.id)
+
+  const { data: invitesByCompany } = myCompanyIds.length > 0
+    ? await sb
+        .from("CompanyInvite")
+        .select("id, token, expiresAt, usedAt, createdAt, companyId")
+        .in("companyId", myCompanyIds)
+        .order("createdAt", { ascending: false })
+    : { data: [] }
 
   const allInvites = invitesByCompany ?? []
   const now = new Date()
@@ -142,18 +145,20 @@ export async function POST(req: NextRequest) {
 
   // 取引先 Company を事前作成（招待情報として全フィールドを保存）
   const newCompanyId = randomBytes(12).toString("hex")
+  const myCompanyId = (session.user as any).companyId
   const { error: companyErr } = await sb.from("Company").insert({
-    id:              newCompanyId,
-    name:            body.companyName,
-    address:         body.address,
-    contactName:     body.contactName,
-    corporateNumber: body.corporateNumber,
-    email:           body.email,
-    tel:             body.tel,
-    type:            "CLIENT",
-    isActive:        true,
-    createdAt:       new Date().toISOString(),
-    updatedAt:       new Date().toISOString(),
+    id:                 newCompanyId,
+    name:               body.companyName,
+    address:            body.address,
+    contactName:        body.contactName,
+    corporateNumber:    body.corporateNumber,
+    email:              body.email,
+    tel:                body.tel,
+    type:               "CLIENT",
+    isActive:           true,
+    createdByCompanyId: myCompanyId,
+    createdAt:          new Date().toISOString(),
+    updatedAt:          new Date().toISOString(),
   })
   if (companyErr) {
     console.error("[invites POST company]", companyErr)
