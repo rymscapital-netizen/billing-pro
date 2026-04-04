@@ -6,8 +6,35 @@ import { z } from "zod"
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const u = session.user as any
 
   try {
+    // CLIENTロール: 自社と連携済み会社のみ返す
+    if (u.role === "CLIENT") {
+      // 連携済み会社IDを取得
+      const links = await (prisma as any).companyLink.findMany({
+        where: {
+          status: "APPROVED",
+          OR: [
+            { companyAId: u.companyId },
+            { companyBId: u.companyId },
+          ],
+        },
+        select: { companyAId: true, companyBId: true },
+      })
+      const linkedIds = links.map((l: any) =>
+        l.companyAId === u.companyId ? l.companyBId : l.companyAId
+      )
+      // 連携済み会社のみ（自社は請求先にしない）
+      const companies = await prisma.company.findMany({
+        where: { id: { in: linkedIds }, isActive: true },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, isActive: true, createdAt: true },
+      })
+      return NextResponse.json(companies)
+    }
+
+    // ADMINロール: 全CLIENT会社を返す（既存動作）
     const companies = await prisma.company.findMany({
       where: { type: "CLIENT" },
       orderBy: { name: "asc" },
