@@ -1,0 +1,13 @@
+{
+  "buildCommand": "npx prisma generate --no-engine && next build",
+  "crons": [
+    {
+      "path": "/api/cron/overdue",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/reminder",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}

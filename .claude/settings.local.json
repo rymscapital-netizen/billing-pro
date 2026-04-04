@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node scripts/upsert-admin-company.mjs)",
+      "Bash(node scripts/add-invoice-id-column.mjs)",
+      "Bash(rm scripts/add-invoice-id-column.mjs)",
+      "Bash(npx tsc:*)",
+      "Bash(npx next:*)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill /PID 1449552 /F)",
+      "Bash(rm -rf .next/cache)",
+      "Bash(taskkill /PID 1170932 /F)",
+      "Bash(taskkill //PID 1449552 //F)",
+      "Bash(taskkill //PID 1170932 //F)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(node -e \":*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "Bash(curl -s http://localhost:3000/admin/dashboard -w \"\\\\n%{http_code}\")",
+      "Bash(curl -s http://localhost:3000/login -w \"\\\\n%{http_code}\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/login)",
+      "Bash(find c:Users81803OneDriveデスクトップbilling-prosrc -name *.tsx)",
+      "Bash(npx prisma:*)",
+      "Bash(ls \"/c/Users/81803/OneDrive/デスクトップ/billing-pro/src/app/\\(auth\\)/\")",
+      "Bash(pm2 --version)",
+      "Bash(npm --version)",
+      "Bash(npm install:*)",
+      "Bash(node -e ':*)"
+    ]
+  }
+}

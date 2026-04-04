@@ -1,0 +1,23 @@
+# 環境変数（絶対にGitHubにアップしない）
+.env
+.env.local
+.env.production
+.env*.local
+
+# Next.js
+.next/
+out/
+
+# Node
+node_modules/
+
+# Prisma
+prisma/*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ログ
+*.log
+npm-debug.log*

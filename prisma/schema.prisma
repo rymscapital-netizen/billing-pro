@@ -1,0 +1,200 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id              String      @id @default(cuid())
+  name            String
+  address         String?
+  tel             String?
+  email           String?
+  contactName     String?
+  corporateNumber String?
+  type            CompanyType @default(CLIENT)
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  users            User[]
+  invoices         Invoice[]        @relation("InvoiceRecipient")
+  issuedInvoices   Invoice[]        @relation("InvoiceIssuer")
+  companyInvites   CompanyInvite[]
+}
+
+enum CompanyType {
+  ADMIN
+  CLIENT
+}
+
+model User {
+  id           String   @id @default(cuid())
+  companyId    String
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(CLIENT)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company              Company          @relation(fields: [companyId], references: [id])
+  clearedPayments      InvoicePayment[] @relation("ClearedBy")
+  ocrJobs              OcrJob[]
+  assignedInvoices     Invoice[]        @relation("InvoiceAssignedUser")
+  assignedRcvInvoices  ReceivedInvoice[] @relation("ReceivedInvoiceAssignedUser")
+}
+
+enum UserRole {
+  ADMIN
+  CLIENT
+}
+
+model Invoice {
+  id               String        @id @default(cuid())
+  invoiceNumber    String        @unique
+  companyId        String
+  issuerCompanyId  String?
+  assignedUserId   String?
+  subject          String
+  issueDate        DateTime
+  dueDate          DateTime
+  amount           Decimal       @db.Decimal(14, 0)
+  subtotal         Decimal       @db.Decimal(14, 0)
+  tax              Decimal       @db.Decimal(14, 0)
+  status           InvoiceStatus @default(DRAFT)
+  pdfUrl           String?
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  company        Company          @relation("InvoiceRecipient", fields: [companyId], references: [id])
+  issuerCompany  Company?         @relation("InvoiceIssuer", fields: [issuerCompanyId], references: [id])
+  assignedUser   User?            @relation("InvoiceAssignedUser", fields: [assignedUserId], references: [id])
+  profit         InvoiceProfit?
+  payments       InvoicePayment[]
+  ocrJobs        OcrJob[]
+  images         InvoiceImage[]
+}
+
+model InvoiceImage {
+  id        String   @id @default(cuid())
+  invoiceId String
+  url       String
+  createdAt DateTime @default(now())
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PENDING
+  OVERDUE
+  PAYMENT_CONFIRMED
+  CLEARED
+}
+
+model InvoiceProfit {
+  id          String   @id @default(cuid())
+  invoiceId   String   @unique
+  sales       Decimal  @db.Decimal(14, 0)
+  cost        Decimal  @db.Decimal(14, 0)
+  grossProfit Decimal  @db.Decimal(14, 0)
+  profitRate  Decimal  @db.Decimal(5, 2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+}
+
+model InvoicePayment {
+  id              String        @id @default(cuid())
+  invoiceId       String        @unique
+  paymentDate     DateTime?
+  paymentAmount   Decimal?      @db.Decimal(14, 0)
+  paymentStatus   PaymentStatus @default(UNPAID)
+  clearedAt       DateTime?
+  clearedByUserId String?
+  clearStatus     ClearStatus   @default(UNCLEARED)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+  clearedBy User?   @relation("ClearedBy", fields: [clearedByUserId], references: [id])
+}
+
+enum PaymentStatus {
+  UNPAID
+  CONFIRMED
+}
+
+enum ClearStatus {
+  UNCLEARED
+  CLEARED
+}
+
+model ReceivedInvoice {
+  id               String                @id @default(cuid())
+  invoiceNumber    String?
+  vendorName       String
+  subject          String
+  issueDate        DateTime
+  dueDate          DateTime
+  amount           Decimal               @db.Decimal(14, 0)
+  status           ReceivedInvoiceStatus @default(UNPAID)
+  paidAt           DateTime?
+  notes            String?
+  invoiceId        String?
+  assignedUserId   String?
+  ownerCompanyId   String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  assignedUser User? @relation("ReceivedInvoiceAssignedUser", fields: [assignedUserId], references: [id])
+}
+
+enum ReceivedInvoiceStatus {
+  UNPAID
+  PAID
+}
+
+model CompanyInvite {
+  id        String    @id @default(cuid())
+  companyId String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  company   Company   @relation(fields: [companyId], references: [id])
+}
+
+model CompanyLink {
+  id                   String   @id @default(cuid())
+  companyAId           String
+  companyBId           String
+  status               String   @default("PENDING")
+  requestedByCompanyId String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model OcrJob {
+  id              String    @id @default(cuid())
+  invoiceId       String?
+  originalFileUrl String
+  extractedJson   Json?
+  confidenceJson  Json?
+  status          OcrStatus @default(PENDING)
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+  createdBy User     @relation(fields: [createdByUserId], references: [id])
+}
+
+enum OcrStatus {
+  PENDING
+  PROCESSING
+  REVIEW
+  COMPLETED
+  FAILED
+}

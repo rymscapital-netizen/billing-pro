@@ -1,0 +1,202 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design tokens ─────────────────────────────────────── */
+@layer base {
+  :root {
+    --bg:          theme(colors.navy.50);
+    --surface:     #ffffff;
+    --surface-2:   theme(colors.navy.50);
+    --surface-3:   theme(colors.navy.100);
+    --border:      rgba(30,52,96,0.10);
+    --border-md:   rgba(30,52,96,0.18);
+    --border-gold: rgba(164,124,24,0.28);
+    --text-1:      theme(colors.navy.900);
+    --text-2:      theme(colors.navy.700);
+    --text-3:      theme(colors.navy.400);
+    --text-4:      theme(colors.navy.300);
+  }
+
+  body {
+    @apply bg-navy-50 text-navy-900 antialiased;
+    font-feature-settings: "tnum";
+  }
+
+  /* フォーカスリング統一 */
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(196,152,40,0.22);
+  }
+
+  /* スクロールバー（細め） */
+  ::-webkit-scrollbar       { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: theme(colors.navy.200); border-radius: 9999px; }
+}
+
+/* ─── Utility layer ─────────────────────────────────────── */
+@layer utilities {
+  /* テーブル数値を等幅に */
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* カード上辺カラーライン */
+  .card-line-gold  { background: linear-gradient(90deg, theme(colors.gold.600), theme(colors.gold.300)); }
+  .card-line-green { background: linear-gradient(90deg, #2e9e62, #72d4a0); }
+  .card-line-red   { background: linear-gradient(90deg, #c43030, #e87878); }
+  .card-line-amber { background: linear-gradient(90deg, #c08020, #e8c050); }
+  .card-line-navy  { background: linear-gradient(90deg, theme(colors.navy.700), theme(colors.navy.400)); }
+  .card-line-gray  { background: theme(colors.navy.200); }
+}
+
+/* ─── Component layer ───────────────────────────────────── */
+@layer components {
+  /* ── Card ── */
+  .card {
+    @apply relative bg-white rounded-lg border border-navy-100 overflow-hidden;
+    box-shadow: var(--shadow-card, 0 1px 3px rgba(15,31,61,0.06));
+  }
+  .card-topline::before {
+    content: "";
+    @apply absolute top-0 left-0 right-0 h-[3px] rounded-t-lg;
+  }
+
+  /* ── Table ── */
+  .data-table {
+    @apply w-full border-collapse text-[12.5px];
+  }
+  .data-table th {
+    @apply text-left px-4 py-[9px] text-[10.5px] font-medium text-navy-400
+           uppercase tracking-[0.06em] bg-navy-50 border-b border-navy-100;
+  }
+  .data-table td {
+    @apply px-4 py-[11px] border-b border-navy-100 text-navy-700
+           align-middle;
+  }
+  .data-table tr:last-child td { @apply border-b-0; }
+  .data-table tr:hover td      { @apply bg-navy-50; }
+  .data-table td.primary       { @apply font-medium text-navy-900 tabular; }
+  .data-table td.amount        { @apply font-medium text-navy-900 tabular text-right; }
+  .data-table td.overdue       { @apply font-medium text-red-700; }
+  .data-table td.muted         { @apply text-navy-400 text-[11px]; }
+
+  /* ── Badge ── */
+  .badge {
+    @apply inline-block text-[10.5px] font-medium px-[9px] py-[3px]
+           rounded-full whitespace-nowrap tracking-[0.02em] border;
+  }
+  .badge-green  { @apply bg-emerald-50  text-emerald-800 border-emerald-200; }
+  .badge-amber  { @apply bg-amber-50    text-amber-800   border-amber-200;   }
+  .badge-red    { @apply bg-red-50      text-red-800     border-red-200;     }
+  .badge-blue   { @apply bg-blue-50     text-blue-800    border-blue-200;    }
+  .badge-gold   { @apply bg-gold-50     text-gold-700    border-gold-200;    }
+  .badge-gray   { @apply bg-navy-50     text-navy-500    border-navy-200;    }
+  .badge-navy   { @apply bg-navy-100    text-navy-700    border-navy-200;    }
+
+  /* ── Button ── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5
+           text-[12px] font-medium px-[14px] py-[6px]
+           rounded-lg border border-navy-200 bg-transparent
+           text-navy-700 cursor-pointer transition-all duration-150
+           select-none;
+  }
+  .btn:hover { @apply bg-navy-50 text-navy-900; }
+  .btn:active { @apply scale-[0.98]; }
+
+  .btn-navy {
+    @apply bg-navy-800 text-white border-navy-800;
+  }
+  .btn-navy:hover { @apply bg-navy-700; }
+
+  .btn-gold {
+    @apply bg-gold-500 text-white border-gold-500;
+  }
+  .btn-gold:hover { @apply bg-gold-600; }
+
+  .btn-outline-gold {
+    @apply bg-gold-50 text-gold-700 border-gold-300;
+  }
+  .btn-outline-gold:hover { @apply bg-gold-100; }
+
+  .btn-danger {
+    @apply bg-red-50 text-red-700 border-red-300;
+  }
+  .btn-danger:hover { @apply bg-red-100; }
+
+  .btn-sm  { @apply text-[11px] px-[10px] py-[4px] rounded-md; }
+  .btn-lg  { @apply text-[13px] px-[18px] py-[8px]; }
+  .btn-icon { @apply p-[6px]; }
+
+  /* ── Form ── */
+  .form-input {
+    @apply w-full px-[11px] py-[8px] text-[13px]
+           border border-navy-200 rounded-lg
+           bg-white text-navy-900 placeholder:text-navy-300
+           transition-colors duration-150;
+  }
+  .form-input:focus {
+    @apply border-gold-500 outline-none;
+    box-shadow: 0 0 0 3px rgba(196,152,40,0.14);
+  }
+  .form-input.warn {
+    @apply border-amber-400 bg-amber-50;
+  }
+  .form-input.ok   {
+    @apply border-emerald-400;
+  }
+  .form-label {
+    @apply block text-[10.5px] text-navy-400 mb-1
+           uppercase tracking-[0.06em] font-medium;
+  }
+
+  /* ── Progress ── */
+  .progress-track { @apply bg-navy-100 rounded h-[7px] overflow-hidden; }
+  .progress-fill  {
+    @apply h-full rounded transition-all duration-500;
+    background: linear-gradient(90deg, theme(colors.gold.600), theme(colors.gold.300));
+  }
+
+  /* ── Sidebar nav ── */
+  .nav-item {
+    @apply flex items-center gap-[9px] px-5 py-[9px]
+           text-[12.5px] text-white/50 cursor-pointer
+           transition-all duration-150
+           border-l-2 border-transparent;
+  }
+  .nav-item:hover  { @apply bg-white/[0.05] text-white/80; }
+  .nav-item.active {
+    @apply bg-gold-500/[0.12] text-gold-300 border-l-gold-400 font-medium;
+  }
+
+  /* ── Tab ── */
+  .tab {
+    @apply px-4 py-[11px] text-[12px] text-navy-400
+           cursor-pointer border-b-2 border-transparent
+           transition-all duration-150;
+  }
+  .tab:hover  { @apply text-navy-700; }
+  .tab.active { @apply text-navy-800 border-b-gold-500 font-medium; }
+
+  /* ── Alert banner ── */
+  .alert-banner {
+    @apply flex items-center gap-2
+           bg-red-50 border border-red-200 rounded-lg
+           px-4 py-[10px] mb-5 text-[12px] text-red-800;
+  }
+
+  /* ── Modal ── */
+  .modal-overlay {
+    @apply fixed inset-0 z-50
+           flex items-center justify-center
+           bg-navy-900/40 backdrop-blur-sm;
+  }
+  .modal {
+    @apply bg-white rounded-xl border border-navy-200 p-6 w-[460px] max-w-[95vw];
+    box-shadow: 0 12px 48px rgba(15,31,61,0.14);
+  }
+  .modal-bar {
+    @apply w-[3px] h-5 rounded-full flex-shrink-0;
+    background: linear-gradient(180deg, theme(colors.gold.500), theme(colors.gold.300));
+  }
+}
