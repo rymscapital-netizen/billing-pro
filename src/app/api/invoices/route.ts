@@ -57,8 +57,8 @@ export async function GET(req: NextRequest) {
     // ADMINは常に見える。CLIENTは "issued" ビューのみ
     const includeProfit = u.role === "ADMIN" || view === "issued"
     const selectFields = includeProfit
-      ? "*, company:Company(id,name), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!Invoice_assignedUserId_fkey(id,name)"
-      : "*, company:Company(id,name), payments:InvoicePayment(*), assignedUser:User!Invoice_assignedUserId_fkey(id,name)"
+      ? "*, company:Company!companyId(id,name), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!assignedUserId(id,name)"
+      : "*, company:Company!companyId(id,name), payments:InvoicePayment(*), assignedUser:User!assignedUserId(id,name)"
 
     let q = sb.from("Invoice").select(selectFields).order("dueDate", { ascending: true })
 
