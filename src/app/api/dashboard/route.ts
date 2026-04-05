@@ -122,7 +122,7 @@ export async function GET(req: Request) {
         { count: overdueCount },
         { count: unclearedCount },
         { data: allUnpaidRows, error: e1 },
-        // 被請求書（自社 ownerCompanyId）= 今月分の経費
+        // 被請求書（自社 ownerCompanyId）= 全期間の未払い経費
         { data: rcvRows, error: e2 },
       ] = await Promise.all([
         overdueQ,
@@ -130,8 +130,7 @@ export async function GET(req: Request) {
           .eq("paymentStatus", "CONFIRMED").eq("clearStatus", "UNCLEARED"),
         unpaidQ,
         sb.from("ReceivedInvoice").select("amount, status")
-          .eq("ownerCompanyId", cid)
-          .gte("dueDate", msStart.toISOString()).lte("dueDate", msEnd.toISOString()),
+          .eq("ownerCompanyId", cid),
       ])
       if (e1) throw new Error(`allUnpaid: ${e1.message}`)
       if (e2) throw new Error(`rcvRows: ${e2.message}`)
@@ -179,8 +178,7 @@ export async function GET(req: Request) {
         .gte("dueDate", nextStart.toISOString()).lte("dueDate", nextEnd.toISOString())
         .neq("status", "DRAFT") as any),
       sb.from("ReceivedInvoice").select("amount, status")
-        .eq("ownerCompanyId", cid)
-        .gte("dueDate", msStart.toISOString()).lte("dueDate", msEnd.toISOString()),
+        .eq("ownerCompanyId", cid),
     ])
     if (e1) throw new Error(`allUnpaid: ${e1.message}`)
     if (e2) throw new Error(`rcvRows: ${e2.message}`)

@@ -50,9 +50,9 @@ export default function AdminDashboardPage() {
   ]
 
   const payableCards = [
-    { label: "今月要支払総額", value: data ? yen(data.payableTotal     ?? 0) : "…", color: "#c49828" },
-    { label: "今月既支払済額", value: data ? yen(data.payablePaid      ?? 0) : "…", color: "#2e9e62" },
-    { label: "今月残支払総額", value: data ? yen(data.payableRemaining ?? 0) : "…", color: "#c43030" },
+    { label: "被請求書合計",   value: data ? yen(data.payableTotal     ?? 0) : "…", color: "#c49828" },
+    { label: "支払済み合計",   value: data ? yen(data.payablePaid      ?? 0) : "…", color: "#2e9e62" },
+    { label: "未払い残額",     value: data ? yen(data.payableRemaining ?? 0) : "…", color: "#c43030" },
   ]
 
   const pl = data?.monthlyPL
@@ -168,7 +168,7 @@ export default function AdminDashboardPage() {
 
       {/* 請求される項目 */}
       <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: "32px", marginBottom: "10px" }}>
-        請求される項目（今月）
+        被請求書サマリー（全期間）
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
         {payableCards.map((card) => (
