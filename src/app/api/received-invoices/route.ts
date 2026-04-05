@@ -1,11 +1,13 @@
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
+import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
-function esc(s: string | null | undefined): string {
-  if (s == null) return "NULL"
-  return `'${String(s).replace(/'/g, "''")}'`
+function getSb() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
 }
 
 const createSchema = z.object({
@@ -28,22 +30,24 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const filterUserId = searchParams.get("assignedUserId")
 
-    let sql = `SELECT ri.*, u.name AS "assignedUserName"
-               FROM "ReceivedInvoice" ri
-               LEFT JOIN "User" u ON u.id = ri."assignedUserId"`
-    const conditions: string[] = []
+    const sb = getSb()
+    let q = sb.from("ReceivedInvoice")
+      .select("*, assignedUser:User!assignedUserId(id,name)")
+      .eq("ownerCompanyId", u.companyId)
+      .order("dueDate", { ascending: true })
 
-    // 取引先は自社の被請求書のみ表示
-    if (u.role === "CLIENT") {
-      conditions.push(`ri."ownerCompanyId" = ${esc(u.companyId)}`)
-    }
-    if (filterUserId) conditions.push(`ri."assignedUserId" = ${esc(filterUserId)}`)
-    if (conditions.length) sql += ` WHERE ${conditions.join(" AND ")}`
-    sql += ` ORDER BY ri."dueDate" ASC`
+    if (filterUserId) q = q.eq("assignedUserId", filterUserId)
 
-    const invoices: any[] = await prisma.$queryRawUnsafe(sql)
-    return NextResponse.json(invoices)
-  } catch (e) {
+    const { data, error } = await q
+    if (error) throw new Error(error.message)
+
+    const rows = (data ?? []).map((r: any) => ({
+      ...r,
+      assignedUser:     Array.isArray(r.assignedUser) ? (r.assignedUser[0] ?? null) : r.assignedUser,
+      assignedUserName: Array.isArray(r.assignedUser) ? r.assignedUser[0]?.name : r.assignedUser?.name,
+    }))
+    return NextResponse.json(rows)
+  } catch (e: any) {
     console.error("[received-invoices GET]", e)
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
   }
@@ -56,32 +60,29 @@ export async function POST(req: NextRequest) {
     const u = session.user as any
 
     const body = createSchema.parse(await req.json())
-    const newId = "c" + Math.random().toString(36).slice(2, 27)
+    const sb = getSb()
+    const id  = crypto.randomUUID()
+    const now = new Date().toISOString()
 
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO "ReceivedInvoice"
-         (id, "invoiceNumber", "vendorName", subject, "issueDate", "dueDate", amount, status, notes, "assignedUserId", "ownerCompanyId", "createdAt", "updatedAt")
-       VALUES (
-         '${newId}',
-         ${esc(body.invoiceNumber ?? null)},
-         ${esc(body.vendorName)},
-         ${esc(body.subject)},
-         '${new Date(body.issueDate).toISOString()}',
-         '${new Date(body.dueDate).toISOString()}',
-         ${body.amount},
-         'UNPAID',
-         ${esc(body.notes ?? null)},
-         ${esc((body as any).assignedUserId ?? null)},
-         ${esc(u.companyId)},
-         NOW(), NOW()
-       )`
-    )
+    const { data, error } = await sb.from("ReceivedInvoice").insert({
+      id,
+      invoiceNumber:  body.invoiceNumber  ?? null,
+      vendorName:     body.vendorName,
+      subject:        body.subject,
+      issueDate:      new Date(body.issueDate).toISOString(),
+      dueDate:        new Date(body.dueDate).toISOString(),
+      amount:         body.amount,
+      status:         "UNPAID",
+      notes:          body.notes          ?? null,
+      assignedUserId: body.assignedUserId ?? null,
+      ownerCompanyId: u.companyId,
+      createdAt:      now,
+      updatedAt:      now,
+    }).select().single()
 
-    const rows: any[] = await prisma.$queryRawUnsafe(
-      `SELECT * FROM "ReceivedInvoice" WHERE id = '${newId}'`
-    )
-    return NextResponse.json(rows[0], { status: 201 })
-  } catch (e) {
+    if (error) throw new Error(error.message)
+    return NextResponse.json(data, { status: 201 })
+  } catch (e: any) {
     console.error("[received-invoices POST]", e)
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
   }

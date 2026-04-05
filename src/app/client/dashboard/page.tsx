@@ -75,7 +75,7 @@ export default function ClientDashboardPage() {
           ],
         },
         {
-          label: "経費", color: "#c43030",
+          label: "原価", color: "#c43030",
           rows: [
             { sub: "税込",    prev: pl.prev.costInc,  current: pl.current.costInc,  next: pl.next.costInc  },
             { sub: "税抜",    prev: pl.prev.costEx,   current: pl.current.costEx,   next: pl.next.costEx   },
@@ -83,11 +83,23 @@ export default function ClientDashboardPage() {
           ],
         },
         {
-          label: "利益", color: "#2e9e62", isBold: true,
+          label: "粗利", color: "#2e9e62", isBold: true,
           rows: [
             { sub: "税込",    prev: pl.prev.profitInc,  current: pl.current.profitInc,  next: pl.next.profitInc  },
             { sub: "税抜",    prev: pl.prev.profitEx,   current: pl.current.profitEx,   next: pl.next.profitEx   },
             { sub: "消費税額", prev: pl.prev.profitTax,  current: pl.current.profitTax,  next: pl.next.profitTax  },
+          ],
+        },
+        {
+          label: "経費（被請求）", color: "#7c3aed",
+          rows: [
+            { sub: "合計", prev: pl.prev.expenseTotal, current: pl.current.expenseTotal, next: pl.next.expenseTotal },
+          ],
+        },
+        {
+          label: "収支（売上－経費）", color: "#0f1f3d", isBold: true,
+          rows: [
+            { sub: "合計", prev: pl.prev.balance, current: pl.current.balance, next: pl.next.balance },
           ],
         },
       ]
@@ -95,9 +107,9 @@ export default function ClientDashboardPage() {
 
   const chartData = pl
     ? [
-        { name: "前月実績", "売上(税抜)": pl.prev.salesEx,    "経費(税抜)": pl.prev.costEx,    "利益(税抜)": pl.prev.profitEx    },
-        { name: "今月実績", "売上(税抜)": pl.current.salesEx, "経費(税抜)": pl.current.costEx, "利益(税抜)": pl.current.profitEx },
-        { name: "来月予想", "売上(税抜)": pl.next.salesEx,    "経費(税抜)": pl.next.costEx,    "利益(税抜)": pl.next.profitEx    },
+        { name: "前月実績", "売上(税込)": pl.prev.salesInc,    "経費（被請求）": pl.prev.expenseTotal,    "収支": pl.prev.balance    },
+        { name: "今月実績", "売上(税込)": pl.current.salesInc, "経費（被請求）": pl.current.expenseTotal, "収支": pl.current.balance },
+        { name: "来月予想", "売上(税込)": pl.next.salesInc,    "経費（被請求）": pl.next.expenseTotal,    "収支": pl.next.balance    },
       ]
     : []
 
@@ -214,7 +226,9 @@ export default function ClientDashboardPage() {
                         fontSize: "12px",
                         color: section.isBold
                           ? (row[period] >= 0 ? "#2e9e62" : "#c43030")
-                          : section.label === "経費" ? "#c43030" : "#0f1f3d",
+                          : section.label === "原価" ? "#c43030"
+                          : section.label === "経費（被請求）" ? "#7c3aed"
+                          : "#0f1f3d",
                       }}>
                         {data ? yen(row[period]) : "…"}
                       </td>
@@ -245,9 +259,9 @@ export default function ClientDashboardPage() {
                 contentStyle={{ fontSize: "12px", borderRadius: "8px", border: "1px solid #e4eaf4" }}
               />
               <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "16px" }} />
-              <Bar dataKey="売上(税抜)" fill="#4e7cff" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="経費(税抜)" fill="#f87171" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="利益(税抜)" fill="#34d399" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="売上(税込)" fill="#4e7cff" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="経費（被請求）" fill="#a78bfa" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="収支" fill="#34d399" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}

@@ -10,6 +10,21 @@ function getSupabase() {
   )
 }
 
+// 自社が受け取った請求書（経費）= ownerCompanyId でフィルタ
+async function getMonthlyExpense(
+  sb: ReturnType<typeof getSupabase>,
+  start: Date, end: Date,
+  ownerCompanyId: string,
+): Promise<number> {
+  const { data, error } = await sb.from("ReceivedInvoice")
+    .select("amount")
+    .eq("ownerCompanyId", ownerCompanyId)
+    .gte("dueDate", start.toISOString())
+    .lte("dueDate", end.toISOString())
+  if (error) throw new Error(`getMonthlyExpense: ${error.message}`)
+  return (data ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0)
+}
+
 // 自社が発行した請求書（売上）= issuerCompanyId でフィルタ
 async function getMonthlyPL(
   sb: ReturnType<typeof getSupabase>,
@@ -78,11 +93,14 @@ export async function GET(req: Request) {
     const u   = session.user as any
     const cid = u.companyId as string
 
-    // ADMIN・CLIENT 共通：自社が発行した請求書を売上として集計
-    const [prevMonth, thisMonth, nextMonth] = await Promise.all([
+    // ADMIN・CLIENT 共通：自社が発行した請求書を売上として集計 / 受け取った請求書を経費として集計
+    const [prevMonth, thisMonth, nextMonth, prevExpense, thisExpense, nextExpense] = await Promise.all([
       getMonthlyPL(sb, prevStart, prevEnd, cid, filterUserId),
       getMonthlyPL(sb, msStart,   msEnd,   cid, filterUserId),
       getMonthlyPL(sb, nextStart, nextEnd, cid, filterUserId),
+      getMonthlyExpense(sb, prevStart, prevEnd, cid),
+      getMonthlyExpense(sb, msStart,   msEnd,   cid),
+      getMonthlyExpense(sb, nextStart, nextEnd, cid),
     ])
 
     const thisMonthDue  = thisMonth.salesInc
@@ -134,9 +152,9 @@ export async function GET(req: Request) {
         payableTotal, payablePaid,
         payableRemaining: payableTotal - payablePaid,
         monthlyPL: {
-          prev:    plShape(prevMonth),
-          current: plShape(thisMonth),
-          next:    plShape(nextMonth),
+          prev:    { ...plShape(prevMonth), expenseTotal: prevExpense,  balance: prevMonth.salesInc  - prevExpense  },
+          current: { ...plShape(thisMonth), expenseTotal: thisExpense,  balance: thisMonth.salesInc  - thisExpense  },
+          next:    { ...plShape(nextMonth), expenseTotal: nextExpense,  balance: nextMonth.salesInc  - nextExpense  },
         },
       })
     }
@@ -184,9 +202,9 @@ export async function GET(req: Request) {
       payableTotal, payablePaid,
       payableRemaining: payableTotal - payablePaid,
       monthlyPL: {
-        prev:    plShape(prevMonth),
-        current: plShape(thisMonth),
-        next:    plShape(nextMonth),
+        prev:    { ...plShape(prevMonth), expenseTotal: prevExpense,  balance: prevMonth.salesInc  - prevExpense  },
+        current: { ...plShape(thisMonth), expenseTotal: thisExpense,  balance: thisMonth.salesInc  - thisExpense  },
+        next:    { ...plShape(nextMonth), expenseTotal: nextExpense,  balance: nextMonth.salesInc  - nextExpense  },
       },
     })
   } catch (e: any) {
