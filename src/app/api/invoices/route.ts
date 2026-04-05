@@ -63,7 +63,8 @@ export async function GET(req: NextRequest) {
     let q = sb.from("Invoice").select(selectFields).order("dueDate", { ascending: true })
 
     if (u.role === "ADMIN") {
-      // 管理者: 全件（フィルターのみ適用）
+      // 管理者: 自社が発行した請求書のみ（issuerCompanyId でテナント分離）
+      q = q.eq("issuerCompanyId", u.companyId)
       if (filterCompanyId) q = q.eq("companyId", filterCompanyId)
       if (filterUserId)    q = q.eq("assignedUserId", filterUserId)
     } else {
