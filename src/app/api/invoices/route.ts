@@ -164,25 +164,26 @@ export async function POST(req: NextRequest) {
   // 発行者と受取先が異なる会社の場合のみ（自社宛は不要）
   if (body.companyId !== u.companyId) {
     try {
-      const issuerCompany = await prisma.company.findUnique({
-        where: { id: u.companyId },
-        select: { name: true },
-      })
       const sb = getSb()
+      // Supabase で発行元の会社名を取得（Prisma/pgBouncer を避ける）
+      const { data: issuerRows } = await sb.from("Company")
+        .select("name").eq("id", u.companyId).limit(1)
+      const vendorName = issuerRows?.[0]?.name ?? ""
+
       await sb.from("ReceivedInvoice").insert({
-        id:            require("crypto").randomUUID(),
-        invoiceId:     invoice.id,
-        invoiceNumber: body.invoiceNumber,
-        vendorName:    issuerCompany?.name ?? "",
-        subject:       body.subject,
-        issueDate:     new Date(body.issueDate).toISOString(),
-        dueDate:       new Date(body.dueDate).toISOString(),
+        id:             crypto.randomUUID(),
+        invoiceId:      invoice.id,
+        invoiceNumber:  body.invoiceNumber,
+        vendorName,
+        subject:        body.subject,
+        issueDate:      new Date(body.issueDate).toISOString(),
+        dueDate:        new Date(body.dueDate).toISOString(),
         amount,
-        status:        "UNPAID",
+        status:         "UNPAID",
         ownerCompanyId: body.companyId,
-        notes:         body.notes ?? null,
-        createdAt:     new Date().toISOString(),
-        updatedAt:     new Date().toISOString(),
+        notes:          body.notes ?? null,
+        createdAt:      new Date().toISOString(),
+        updatedAt:      new Date().toISOString(),
       })
     } catch (e: any) {
       console.error("[invoices POST] ReceivedInvoice auto-create failed:", e?.message)
