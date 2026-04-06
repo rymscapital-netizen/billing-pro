@@ -129,6 +129,8 @@ export default function AdminInvoicesPage() {
 
   const [rcvModalFile, setRcvModalFile] = useState<File | null>(null)
   const [rcvFilterUserId, setRcvFilterUserId] = useState("")
+  const [rcvFilter, setRcvFilter]       = useState<Filter>("all")
+  const [rcvYearMonth, setRcvYearMonth] = useState("")
 
   const [rcvForm, setRcvForm] = useState({
     invoiceNumber:  "",
@@ -147,6 +149,8 @@ export default function AdminInvoicesPage() {
     try {
       const p = new URLSearchParams()
       if (rcvFilterUserId) p.set("assignedUserId", rcvFilterUserId)
+      if (rcvYearMonth)    p.set("yearMonth", rcvYearMonth)
+      else                 p.set("filter", rcvFilter)
       const res = await fetch(`/api/received-invoices?${p.toString()}`)
       if (res.ok) setRcvInvoices(await res.json())
     } catch (e) {
@@ -154,7 +158,7 @@ export default function AdminInvoicesPage() {
     } finally {
       setRcvLoading(false)
     }
-  }, [rcvFilterUserId])
+  }, [rcvFilterUserId, rcvFilter, rcvYearMonth])
 
   useEffect(() => { if (pageTab === "received") fetchRcvInvoices() }, [fetchRcvInvoices, pageTab])
 
@@ -338,8 +342,32 @@ export default function AdminInvoicesPage() {
       {/* ── 被請求書一覧タブ ──────────────────────────────────────────────── */}
       {pageTab === "received" && (
         <>
-          {/* 担当者フィルター */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* 期間フィルタータブ */}
+            <div className="flex gap-1 bg-white border border-navy-100 rounded-lg p-1">
+              {TABS.filter(t => t.value !== "uncleared").map((t) => (
+                <button key={t.value} onClick={() => { setRcvYearMonth(""); setRcvFilter(t.value) }}
+                  className={`px-3 py-1.5 text-[12px] rounded-md transition-all ${
+                    !rcvYearMonth && rcvFilter === t.value ? "bg-navy-900 text-white font-medium" : "text-navy-500 hover:bg-navy-50"
+                  }`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {/* 月指定 */}
+            <div className="flex items-center gap-1.5">
+              <label className="text-[11px] text-navy-400">月を指定</label>
+              <input type="month" value={rcvYearMonth}
+                onChange={e => { setRcvYearMonth(e.target.value); setRcvFilter("all") }}
+                className="px-2 py-1.5 text-[12px] border border-navy-200 rounded-lg text-navy-700 focus:outline-none focus:ring-1 focus:ring-navy-400" />
+              {rcvYearMonth && (
+                <button onClick={() => { setRcvYearMonth(""); setRcvFilter("all") }}
+                  className="text-[11px] text-navy-400 hover:text-navy-700 px-2 py-1.5 border border-navy-200 rounded-lg">
+                  クリア
+                </button>
+              )}
+            </div>
+            {/* 担当者フィルター */}
             <select
               value={rcvFilterUserId}
               onChange={e => setRcvFilterUserId(e.target.value)}

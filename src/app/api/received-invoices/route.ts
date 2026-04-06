@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
+import { startOfMonth, endOfMonth, addMonths } from "date-fns"
 
 function getSb() {
   return createClient(
@@ -29,6 +30,29 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const filterUserId = searchParams.get("assignedUserId")
+    const filter       = searchParams.get("filter") ?? "all"
+    const yearMonth    = searchParams.get("yearMonth")
+
+    const now = new Date()
+    let dateGte: string | null = null
+    let dateLte: string | null = null
+    let overdueMode = false
+
+    if (yearMonth) {
+      const [y, m] = yearMonth.split("-").map(Number)
+      const base = new Date(y, m - 1, 1)
+      dateGte = startOfMonth(base).toISOString()
+      dateLte = endOfMonth(base).toISOString()
+    } else if (filter === "this_month") {
+      dateGte = startOfMonth(now).toISOString()
+      dateLte = endOfMonth(now).toISOString()
+    } else if (filter === "next_month") {
+      const next = addMonths(now, 1)
+      dateGte = startOfMonth(next).toISOString()
+      dateLte = endOfMonth(next).toISOString()
+    } else if (filter === "overdue") {
+      overdueMode = true
+    }
 
     const sb = getSb()
     let q = sb.from("ReceivedInvoice")
@@ -36,7 +60,10 @@ export async function GET(req: NextRequest) {
       .eq("ownerCompanyId", u.companyId)
       .order("dueDate", { ascending: true })
 
-    if (filterUserId) q = q.eq("assignedUserId", filterUserId)
+    if (filterUserId)  q = q.eq("assignedUserId", filterUserId)
+    if (dateGte)       q = q.gte("dueDate", dateGte)
+    if (dateLte)       q = q.lte("dueDate", dateLte)
+    if (overdueMode)   q = q.eq("status", "UNPAID").lt("dueDate", now.toISOString())
 
     const { data, error } = await q
     if (error) throw new Error(error.message)
