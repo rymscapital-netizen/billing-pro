@@ -28,7 +28,7 @@ const toYearMonthValue = (d: Date) =>
 
 const defaultStartMonth = () => {
   const d = new Date()
-  d.setMonth(d.getMonth() - 10) // 10ヶ月前〜来月（12ヶ月）
+  d.setMonth(d.getMonth() - 11) // 11ヶ月前〜今月（12ヶ月・issueDate基準）
   return toYearMonthValue(d)
 }
 
@@ -255,7 +255,7 @@ export default function ClientDashboardPage() {
       {/* グラフ */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "32px", marginBottom: "10px" }}>
         <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
-          月次推移グラフ（12ヶ月）
+          月次推移グラフ（12ヶ月・発行日基準）
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span style={{ fontSize: "11px", color: "#8a9ab8" }}>開始月</span>

@@ -94,6 +94,7 @@ export async function GET(req: Request) {
     const cid = u.companyId as string
 
     // 12ヶ月トレンド用の開始月（クエリパラメータ startMonth=YYYY-MM、省略時は11ヶ月前）
+    // ※ issueDate（発行日）基準で集計するため、当月発行の請求書は常に当月に表示される
     const startMonthParam = searchParams.get("startMonth")
     const trendStart = startMonthParam
       ? startOfMonth(new Date(
@@ -101,7 +102,7 @@ export async function GET(req: Request) {
           parseInt(startMonthParam.split("-")[1]) - 1,
           1
         ))
-      : startOfMonth(subMonths(now, 10)) // デフォルト: 10ヶ月前〜来月（12ヶ月）
+      : startOfMonth(subMonths(now, 11)) // デフォルト: 11ヶ月前〜今月（12ヶ月）
     const trendEnd = endOfMonth(addMonths(trendStart, 11))
 
     // ADMIN・CLIENT 共通：自社が発行した請求書を売上として集計 / 受け取った請求書を経費として集計
@@ -116,17 +117,17 @@ export async function GET(req: Request) {
       getMonthlyExpense(sb, prevStart, prevEnd, cid),
       getMonthlyExpense(sb, msStart,   msEnd,   cid),
       getMonthlyExpense(sb, nextStart, nextEnd, cid),
-      // 12ヶ月分の Invoice（発行）を一括取得
-      sb.from("Invoice").select("amount, dueDate")
+      // 12ヶ月分の Invoice（発行日基準）を一括取得
+      sb.from("Invoice").select("amount, issueDate")
         .eq("issuerCompanyId", cid).neq("status", "DRAFT")
-        .gte("dueDate", trendStart.toISOString()).lte("dueDate", trendEnd.toISOString()),
-      // 12ヶ月分の ReceivedInvoice（経費）を一括取得
-      sb.from("ReceivedInvoice").select("amount, dueDate")
+        .gte("issueDate", trendStart.toISOString()).lte("issueDate", trendEnd.toISOString()),
+      // 12ヶ月分の ReceivedInvoice（発行日基準）を一括取得
+      sb.from("ReceivedInvoice").select("amount, issueDate")
         .eq("ownerCompanyId", cid)
-        .gte("dueDate", trendStart.toISOString()).lte("dueDate", trendEnd.toISOString()),
+        .gte("issueDate", trendStart.toISOString()).lte("issueDate", trendEnd.toISOString()),
     ])
 
-    // JS 側で月別に集計（DB への クエリは2本のみ）
+    // JS 側で月別に集計（issueDate ベース、DB へのクエリは2本のみ）
     const monthlyTrend = Array.from({ length: 12 }, (_, i) => {
       const m  = addMonths(trendStart, i)
       const ms = startOfMonth(m).getTime()
@@ -134,11 +135,11 @@ export async function GET(req: Request) {
       const label = `${m.getFullYear()}/${String(m.getMonth() + 1).padStart(2, "0")}`
 
       const salesInc = ((trendInvResult as any).data ?? [])
-        .filter((r: any) => { const d = new Date(r.dueDate).getTime(); return d >= ms && d <= me })
+        .filter((r: any) => { const d = new Date(r.issueDate).getTime(); return d >= ms && d <= me })
         .reduce((s: number, r: any) => s + Number(r.amount), 0)
 
       const expenseTotal = ((trendRcvResult as any).data ?? [])
-        .filter((r: any) => { const d = new Date(r.dueDate).getTime(); return d >= ms && d <= me })
+        .filter((r: any) => { const d = new Date(r.issueDate).getTime(); return d >= ms && d <= me })
         .reduce((s: number, r: any) => s + Number(r.amount), 0)
 
       return { month: label, salesInc, expenseTotal, balance: salesInc - expenseTotal }
