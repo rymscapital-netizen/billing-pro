@@ -101,7 +101,7 @@ export async function GET(req: Request) {
           parseInt(startMonthParam.split("-")[1]) - 1,
           1
         ))
-      : startOfMonth(subMonths(now, 11))
+      : startOfMonth(subMonths(now, 10)) // デフォルト: 10ヶ月前〜来月（12ヶ月）
     const trendEnd = endOfMonth(addMonths(trendStart, 11))
 
     // ADMIN・CLIENT 共通：自社が発行した請求書を売上として集計 / 受け取った請求書を経費として集計

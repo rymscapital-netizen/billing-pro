@@ -28,7 +28,7 @@ const toYearMonthValue = (d: Date) =>
 
 const defaultStartMonth = () => {
   const d = new Date()
-  d.setMonth(d.getMonth() - 11)
+  d.setMonth(d.getMonth() - 10) // 10ヶ月前〜来月（12ヶ月）
   return toYearMonthValue(d)
 }
 
