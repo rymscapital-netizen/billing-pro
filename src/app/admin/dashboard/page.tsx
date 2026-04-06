@@ -22,11 +22,21 @@ const yenShort = (n: number) => {
 
 const MONTH_LABELS = ["前月実績", "今月実績", "来月予想"]
 
+const toYearMonthValue = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+
+const defaultStartMonth = () => {
+  const d = new Date()
+  d.setMonth(d.getMonth() - 11)
+  return toYearMonthValue(d)
+}
+
 export default function AdminDashboardPage() {
   const [data, setData]             = useState<any>(null)
   const [mounted, setMounted]       = useState(false)
   const [allUsers, setAllUsers]     = useState<{ id: string; name: string }[]>([])
   const [filterUserId, setFilterUserId] = useState("")
+  const [startMonth, setStartMonth] = useState(defaultStartMonth)
 
   useEffect(() => {
     fetch("/api/users")
@@ -36,12 +46,14 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     setMounted(true)
-    const p = filterUserId ? `?assignedUserId=${filterUserId}` : ""
-    fetch(`/api/dashboard${p}`)
+    const p = new URLSearchParams()
+    if (filterUserId) p.set("assignedUserId", filterUserId)
+    if (startMonth)   p.set("startMonth", startMonth)
+    fetch(`/api/dashboard?${p.toString()}`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(setData)
       .catch(err => console.error("dashboard fetch error:", err))
-  }, [filterUserId])
+  }, [filterUserId, startMonth])
 
   const salesCards = [
     { label: "今月売上総額", value: data ? yen(data.thisMonthDue)       : "…", color: "#c49828" },
@@ -105,13 +117,12 @@ export default function AdminDashboardPage() {
       ]
     : []
 
-  const chartData = pl
-    ? [
-        { name: "前月実績", "売上(税込)": pl.prev.salesInc,    "経費（被請求）": pl.prev.expenseTotal,    "収支": pl.prev.balance    },
-        { name: "今月実績", "売上(税込)": pl.current.salesInc, "経費（被請求）": pl.current.expenseTotal, "収支": pl.current.balance },
-        { name: "来月予想", "売上(税込)": pl.next.salesInc,    "経費（被請求）": pl.next.expenseTotal,    "収支": pl.next.balance    },
-      ]
-    : []
+  const chartData = (data?.monthlyTrend ?? []).map((m: any) => ({
+    name:         m.month,
+    "売上(税込)":    m.salesInc,
+    "経費（被請求）": m.expenseTotal,
+    "収支":          m.balance,
+  }))
 
   return (
     <div style={{ padding: "40px" }}>
@@ -237,9 +248,32 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* グラフ */}
-      <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: "32px", marginBottom: "10px" }}>
-        月次推移グラフ
-      </p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "32px", marginBottom: "10px" }}>
+        <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
+          月次推移グラフ（12ヶ月）
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span style={{ fontSize: "11px", color: "#8a9ab8" }}>開始月</span>
+          <input
+            type="month"
+            value={startMonth}
+            onChange={e => setStartMonth(e.target.value)}
+            style={{
+              padding: "4px 8px", fontSize: "12px", border: "1px solid #e4eaf4",
+              borderRadius: "6px", color: "#0f1f3d", background: "#fff", outline: "none",
+            }}
+          />
+          <button
+            onClick={() => setStartMonth(defaultStartMonth())}
+            style={{
+              padding: "4px 10px", fontSize: "11px", border: "1px solid #e4eaf4",
+              borderRadius: "6px", color: "#8a9ab8", background: "#fff", cursor: "pointer",
+            }}
+          >
+            リセット
+          </button>
+        </div>
+      </div>
       <div style={{ background: "#fff", borderRadius: "10px", border: "1px solid #e4eaf4", padding: "24px" }}>
         {!mounted || !data ? (
           <div style={{ textAlign: "center", color: "#8a9ab8", padding: "40px 0", fontSize: "13px" }}>読み込み中…</div>

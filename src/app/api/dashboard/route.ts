@@ -93,15 +93,56 @@ export async function GET(req: Request) {
     const u   = session.user as any
     const cid = u.companyId as string
 
+    // 12ヶ月トレンド用の開始月（クエリパラメータ startMonth=YYYY-MM、省略時は11ヶ月前）
+    const startMonthParam = searchParams.get("startMonth")
+    const trendStart = startMonthParam
+      ? startOfMonth(new Date(
+          parseInt(startMonthParam.split("-")[0]),
+          parseInt(startMonthParam.split("-")[1]) - 1,
+          1
+        ))
+      : startOfMonth(subMonths(now, 11))
+    const trendEnd = endOfMonth(addMonths(trendStart, 11))
+
     // ADMIN・CLIENT 共通：自社が発行した請求書を売上として集計 / 受け取った請求書を経費として集計
-    const [prevMonth, thisMonth, nextMonth, prevExpense, thisExpense, nextExpense] = await Promise.all([
+    const [
+      prevMonth, thisMonth, nextMonth,
+      prevExpense, thisExpense, nextExpense,
+      trendInvResult, trendRcvResult,
+    ] = await Promise.all([
       getMonthlyPL(sb, prevStart, prevEnd, cid, filterUserId),
       getMonthlyPL(sb, msStart,   msEnd,   cid, filterUserId),
       getMonthlyPL(sb, nextStart, nextEnd, cid, filterUserId),
       getMonthlyExpense(sb, prevStart, prevEnd, cid),
       getMonthlyExpense(sb, msStart,   msEnd,   cid),
       getMonthlyExpense(sb, nextStart, nextEnd, cid),
+      // 12ヶ月分の Invoice（発行）を一括取得
+      sb.from("Invoice").select("amount, dueDate")
+        .eq("issuerCompanyId", cid).neq("status", "DRAFT")
+        .gte("dueDate", trendStart.toISOString()).lte("dueDate", trendEnd.toISOString()),
+      // 12ヶ月分の ReceivedInvoice（経費）を一括取得
+      sb.from("ReceivedInvoice").select("amount, dueDate")
+        .eq("ownerCompanyId", cid)
+        .gte("dueDate", trendStart.toISOString()).lte("dueDate", trendEnd.toISOString()),
     ])
+
+    // JS 側で月別に集計（DB への クエリは2本のみ）
+    const monthlyTrend = Array.from({ length: 12 }, (_, i) => {
+      const m  = addMonths(trendStart, i)
+      const ms = startOfMonth(m).getTime()
+      const me = endOfMonth(m).getTime()
+      const label = `${m.getFullYear()}/${String(m.getMonth() + 1).padStart(2, "0")}`
+
+      const salesInc = ((trendInvResult as any).data ?? [])
+        .filter((r: any) => { const d = new Date(r.dueDate).getTime(); return d >= ms && d <= me })
+        .reduce((s: number, r: any) => s + Number(r.amount), 0)
+
+      const expenseTotal = ((trendRcvResult as any).data ?? [])
+        .filter((r: any) => { const d = new Date(r.dueDate).getTime(); return d >= ms && d <= me })
+        .reduce((s: number, r: any) => s + Number(r.amount), 0)
+
+      return { month: label, salesInc, expenseTotal, balance: salesInc - expenseTotal }
+    })
 
     const thisMonthDue  = thisMonth.salesInc
     const thisMonthPaid = thisMonth.paid
@@ -155,6 +196,7 @@ export async function GET(req: Request) {
           current: { ...plShape(thisMonth), expenseTotal: thisExpense,  balance: thisMonth.salesInc  - thisExpense  },
           next:    { ...plShape(nextMonth), expenseTotal: nextExpense,  balance: nextMonth.salesInc  - nextExpense  },
         },
+        monthlyTrend,
       })
     }
 
@@ -204,6 +246,7 @@ export async function GET(req: Request) {
         current: { ...plShape(thisMonth), expenseTotal: thisExpense,  balance: thisMonth.salesInc  - thisExpense  },
         next:    { ...plShape(nextMonth), expenseTotal: nextExpense,  balance: nextMonth.salesInc  - nextExpense  },
       },
+      monthlyTrend,
     })
   } catch (e: any) {
     console.error("[dashboard ERROR]", e?.message ?? e)
