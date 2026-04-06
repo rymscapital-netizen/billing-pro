@@ -18,8 +18,8 @@ export async function GET() {
   const u = session.user as any
 
   try {
-    // 取引先は自社ユーザーのみ返す（担当者選択用）
-    const where = u.role === "CLIENT" ? { companyId: u.companyId } : {}
+    // ロール問わず自社ユーザーのみ返す（テナント分離）
+    const where = { companyId: u.companyId }
     const users = await prisma.user.findMany({
       where,
       include: { company: { select: { id: true, name: true } } },
