@@ -152,6 +152,14 @@ export default function NewInvoicePage() {
         setValue("subtotal", Math.round(e.subtotal.value))
         filled.add("subtotal")
       }
+      if (e.taxRate?.value != null) {
+        setValue("taxRate", e.taxRate.value)
+        filled.add("taxRate")
+      }
+      if (e.assignedUser?.value) {
+        setAssignedUserId(e.assignedUser.value)
+        filled.add("assignedUserId")
+      }
       // 取引先名で部分一致マッチング（vendorName / customerName）
       const nameHint = e.vendorName?.value ?? e.customerName?.value ?? ""
       if (nameHint) {
@@ -500,8 +508,11 @@ export default function NewInvoicePage() {
               <input type="date" className={`form-input ${ocrFields.has("dueDate") ? "border-emerald-300 bg-emerald-50" : ""}`} {...register("dueDate")} />
             </div>
             <div>
-              <label className="form-label">担当者</label>
-              <select className="form-input" value={assignedUserId}
+              <div className="flex items-center gap-1.5 mb-1">
+                <label className="form-label !mb-0">担当者</label>
+                {ocrFields.has("assignedUserId") && <span className="text-[10px] text-emerald-600 font-medium">OCR</span>}
+              </div>
+              <select className={`form-input ${ocrFields.has("assignedUserId") ? "border-emerald-300 bg-emerald-50" : ""}`} value={assignedUserId}
                 onChange={e => setAssignedUserId(e.target.value)}>
                 <option value="">未設定</option>
                 {adminUsers.map(u => (
@@ -563,8 +574,11 @@ export default function NewInvoicePage() {
               )}
             </div>
             <div>
-              <label className="form-label">消費税率</label>
-              <select className="form-input" {...register("taxRate", { valueAsNumber: true })}>
+              <div className="flex items-center gap-1.5 mb-1">
+                <label className="form-label !mb-0">消費税率</label>
+                {ocrFields.has("taxRate") && <span className="text-[10px] text-emerald-600 font-medium">OCR</span>}
+              </div>
+              <select className={`form-input ${ocrFields.has("taxRate") ? "border-emerald-300 bg-emerald-50" : ""}`} {...register("taxRate", { valueAsNumber: true })}>
                 <option value={10}>10%</option>
                 <option value={8}>8%（軽減）</option>
                 <option value={0}>0%（非課税）</option>
