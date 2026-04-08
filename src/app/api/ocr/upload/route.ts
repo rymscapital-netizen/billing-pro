@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma"
 import { DocumentAnalysisClient, AzureKeyCredential } from "@azure/ai-form-recognizer"
 import { NextRequest, NextResponse } from "next/server"
 
-// Vercel タイムアウトを60秒に延長（ホビープラン上限）
 export const maxDuration = 60
 
 function getClient() {
@@ -13,25 +12,41 @@ function getClient() {
   return new DocumentAnalysisClient(endpoint, new AzureKeyCredential(key))
 }
 
-// CurrencyValue または number から金額を取得
-function toAmount(v: unknown): number | null {
-  if (v == null) return null
-  if (typeof v === "number") return v
-  if (typeof v === "object" && "amount" in (v as any)) return (v as any).amount ?? null
-  return null
+// 日本語通貨文字列 → 数値（"100,000円" → 100000）
+function parseCurrency(s: string | null | undefined): number | null {
+  if (!s) return null
+  const cleaned = s.replace(/[円,\s￥¥、。]/g, "")
+  const num = parseFloat(cleaned)
+  return isNaN(num) ? null : num
 }
 
-// Date → YYYY-MM-DD
-function toDateStr(v: unknown): string | null {
-  if (!v) return null
-  const d = v instanceof Date ? v : new Date(v as string)
-  if (isNaN(d.getTime())) return null
-  return d.toISOString().slice(0, 10)
+// YYYY-MM-DD / YYYY/MM/DD / YYYY年MM月DD日 → YYYY-MM-DD
+function parseDate(s: string | null | undefined): string | null {
+  if (!s) return null
+  // 数字だけ抽出
+  const m = s.match(/(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/)
+  if (!m) return null
+  const [, y, mo, d] = m
+  return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`
+}
+
+// キー・バリューペアから値を検索（複数キーワードで部分一致）
+function findKv(
+  kvPairs: Array<{ key: { content?: string }; value?: { content?: string } }>,
+  keys: string[]
+): string | null {
+  for (const kv of kvPairs) {
+    const keyContent = kv.key?.content ?? ""
+    if (keys.some(k => keyContent.includes(k))) {
+      return kv.value?.content?.trim() ?? null
+    }
+  }
+  return null
 }
 
 // 名前の正規化（スペース・敬称除去）
 function normName(s: string) {
-  return s.replace(/[\s　様御中]/g, "").toLowerCase()
+  return s.replace(/[\s　様御中株式会社有限会社合同会社]/g, "").toLowerCase()
 }
 
 export async function POST(req: NextRequest) {
@@ -50,117 +65,111 @@ export async function POST(req: NextRequest) {
 
   try {
     const client = getClient()
-    const poller = await client.beginAnalyzeDocument("prebuilt-invoice", buffer)
+
+    // prebuilt-document: 日本語請求書のキー・バリューペアを汎用抽出
+    const poller = await client.beginAnalyzeDocument("prebuilt-document", buffer)
     const result = await poller.pollUntilDone()
-    const doc    = result.documents?.[0]
 
-    if (!doc) {
-      return NextResponse.json({ error: "請求書を認識できませんでした" }, { status: 422 })
-    }
+    const kvPairs = (result.keyValuePairs ?? []) as Array<{
+      key: { content?: string }
+      value?: { content?: string }
+      confidence?: number
+    }>
 
-    const f = doc.fields as Record<string, any>
+    console.log("[OCR] kvPairs:", kvPairs.map(kv => ({
+      key: kv.key?.content,
+      value: kv.value?.content,
+    })))
 
-    // 件名: 明細1件目の説明
-    const firstItem    = f.items?.values?.[0]?.properties
-    const subjectValue = firstItem?.description?.content ?? null
+    // ページ全文（フォールバック用）
+    const fullText = result.pages
+      ?.flatMap(p => p.lines ?? [])
+      .map(l => l.content)
+      .join("\n") ?? ""
 
-    // 金額
-    const subTotalAmt   = toAmount(f.subTotal?.value)
-    const totalTaxAmt   = toAmount(f.totalTax?.value)
-    const invoiceTotAmt = toAmount(f.invoiceTotal?.value)
+    // --- 各フィールドを抽出 ---
 
-    const subtotal = subTotalAmt
-      ?? (invoiceTotAmt != null ? Math.round(invoiceTotAmt / 1.1) : null)
-    const tax = totalTaxAmt
-      ?? (subtotal != null && invoiceTotAmt != null ? invoiceTotAmt - subtotal : null)
+    const invoiceNumberRaw = findKv(kvPairs, ["請求書番号", "請求番号", "Invoice", "番号"])
+    const issueDateRaw     = findKv(kvPairs, ["請求日", "発行日", "作成日"])
+    const dueDateRaw       = findKv(kvPairs, ["入金期日", "支払期限", "お支払期限", "期日", "支払日"])
+    const subjectRaw       = findKv(kvPairs, ["件名", "品名", "件　名", "摘要"])
+    const subtotalRaw      = findKv(kvPairs, ["小計", "税抜", "税抜金額"])
+    const taxRaw           = findKv(kvPairs, ["消費税", "税額", "消費税額"])
+    const totalRaw         = findKv(kvPairs, ["請求金額合計", "合計金額", "ご請求金額", "請求金額", "合計"])
 
-    // 消費税率を計算（subtotalとtaxから逆算）
+    // フォールバック: 全文からregexで抽出
+    const invoiceNumber = invoiceNumberRaw
+      ?? fullText.match(/INV[-\s]?\d+/)?.[0]
+      ?? null
+
+    const issueDate = parseDate(issueDateRaw)
+      ?? parseDate(fullText.match(/請求日[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
+
+    const dueDate = parseDate(dueDateRaw)
+      ?? parseDate(fullText.match(/(?:入金期日|支払期限)[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
+
+    const subject = subjectRaw
+      ?? fullText.match(/件名[：: 　]*([^\n]+)/)?.[1]?.trim()
+      ?? null
+
+    const subtotal = parseCurrency(subtotalRaw)
+    const tax      = parseCurrency(taxRaw)
+    const total    = parseCurrency(totalRaw)
+
+    // 総額から税抜・税率を逆算
+    const finalSubtotal = subtotal
+      ?? (total != null ? Math.round(total / 1.1) : null)
+    const finalTax = tax
+      ?? (finalSubtotal != null && total != null ? total - finalSubtotal : null)
+
     let taxRate: number | null = null
-    if (subtotal != null && subtotal > 0 && tax != null) {
-      const rate = Math.round((tax / subtotal) * 100)
-      // 一般的な税率（8% or 10%）に丸める
-      if (rate >= 9 && rate <= 11)      taxRate = 10
-      else if (rate >= 7 && rate <= 9)  taxRate = 8
-      else                              taxRate = rate
+    if (finalSubtotal && finalSubtotal > 0 && finalTax != null) {
+      const rate = Math.round((finalTax / finalSubtotal) * 100)
+      taxRate = (rate >= 9 && rate <= 11) ? 10 : (rate >= 7 && rate <= 9) ? 8 : rate
     }
 
-    // 担当者: 自社ユーザー一覧から名前でマッチング
-    // Azure が返す可能性のある人名フィールドをすべて収集
-    const nameHints: string[] = []
-    if (f.vendorAddressRecipient?.content) nameHints.push(f.vendorAddressRecipient.content)
-    if (f.customerAddressRecipient?.content) nameHints.push(f.customerAddressRecipient.content)
-    if (f.billingAddressRecipient?.content) nameHints.push(f.billingAddressRecipient.content)
-    if (f.serviceAddressRecipient?.content) nameHints.push(f.serviceAddressRecipient.content)
+    // 取引先名: キーから抽出（御中が付く行）
+    let customerNameRaw = findKv(kvPairs, ["御中", "宛先", "請求先"])
+    if (!customerNameRaw) {
+      const m = fullText.match(/^(.{2,20}(?:株式会社|有限会社|合同会社).{0,10})(?:　| )*御中/m)
+      customerNameRaw = m?.[1]?.trim() ?? null
+    }
 
+    // 担当者: 自社ユーザーと名前マッチング
     let assignedUserId: string | null = null
     let assignedUserName: string | null = null
-
-    if (nameHints.length > 0) {
+    const contactRaw = findKv(kvPairs, ["担当者", "担当", "ご担当"])
+    if (contactRaw) {
       const users = await prisma.user.findMany({
         where: { companyId: u.companyId, isActive: true },
         select: { id: true, name: true },
       })
-      for (const hint of nameHints) {
-        const normHint = normName(hint)
-        const matched = users.find(user => {
-          const normUser = normName(user.name)
-          return normHint.includes(normUser) || normUser.includes(normHint)
-        })
-        if (matched) {
-          assignedUserId   = matched.id
-          assignedUserName = matched.name
-          break
-        }
+      const normHint = normName(contactRaw)
+      const matched = users.find(user => {
+        const normUser = normName(user.name)
+        return normHint.includes(normUser) || normUser.includes(normHint)
+      })
+      if (matched) {
+        assignedUserId   = matched.id
+        assignedUserName = matched.name
       }
     }
 
     const extracted = {
-      invoiceNumber: {
-        value:      f.invoiceId?.content ?? null,
-        confidence: f.invoiceId?.confidence ?? 0,
-      },
-      vendorName: {
-        value:      f.vendorName?.content ?? null,
-        confidence: f.vendorName?.confidence ?? 0,
-      },
-      customerName: {
-        value:      f.customerName?.content ?? null,
-        confidence: f.customerName?.confidence ?? 0,
-      },
-      issueDate: {
-        value:      toDateStr(f.invoiceDate?.value) ?? f.invoiceDate?.content ?? null,
-        confidence: f.invoiceDate?.confidence ?? 0,
-      },
-      dueDate: {
-        value:      toDateStr(f.dueDate?.value) ?? f.dueDate?.content ?? null,
-        confidence: f.dueDate?.confidence ?? 0,
-      },
-      subject: {
-        value:      subjectValue,
-        confidence: firstItem?.description?.confidence ?? 0,
-      },
-      subtotal: {
-        value:      subtotal,
-        confidence: f.subTotal?.confidence ?? (invoiceTotAmt != null ? 0.7 : 0),
-      },
-      tax: {
-        value:      tax,
-        confidence: f.totalTax?.confidence ?? 0,
-      },
-      taxRate: {
-        value:      taxRate,
-        confidence: taxRate != null ? 0.9 : 0,
-      },
-      amount: {
-        value:      invoiceTotAmt,
-        confidence: f.invoiceTotal?.confidence ?? 0,
-      },
-      assignedUser: {
-        value:      assignedUserId,
-        label:      assignedUserName,
-        confidence: assignedUserId ? 0.8 : 0,
-      },
+      invoiceNumber: { value: invoiceNumber,    confidence: invoiceNumber ? 0.9 : 0 },
+      vendorName:    { value: null,             confidence: 0 },
+      customerName:  { value: customerNameRaw,  confidence: customerNameRaw ? 0.8 : 0 },
+      issueDate:     { value: issueDate,         confidence: issueDate ? 0.9 : 0 },
+      dueDate:       { value: dueDate,           confidence: dueDate ? 0.9 : 0 },
+      subject:       { value: subject,           confidence: subject ? 0.8 : 0 },
+      subtotal:      { value: finalSubtotal,     confidence: finalSubtotal != null ? 0.9 : 0 },
+      tax:           { value: finalTax,          confidence: finalTax != null ? 0.9 : 0 },
+      taxRate:       { value: taxRate,           confidence: taxRate != null ? 0.9 : 0 },
+      amount:        { value: total,             confidence: total != null ? 0.9 : 0 },
+      assignedUser:  { value: assignedUserId, label: assignedUserName, confidence: assignedUserId ? 0.8 : 0 },
     }
+
+    console.log("[OCR] extracted:", JSON.stringify(extracted, null, 2))
 
     return NextResponse.json({ extracted })
 
