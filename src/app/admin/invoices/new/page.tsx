@@ -383,9 +383,14 @@ export default function NewInvoicePage() {
 
       {/* OCR ドロップゾーン */}
       <div
-        onDragOver={e => { e.preventDefault(); setOcrDragging(true) }}
-        onDragLeave={e => { e.preventDefault(); setOcrDragging(false) }}
-        onDrop={handleOcrDrop}
+        onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setOcrDragging(true) }}
+        onDragOver={e => { e.preventDefault(); e.stopPropagation(); setOcrDragging(true) }}
+        onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setOcrDragging(false) }}
+        onDrop={e => {
+          e.preventDefault(); e.stopPropagation(); setOcrDragging(false)
+          const file = e.dataTransfer.files?.[0]
+          if (file) handleOcrFile(file)
+        }}
         className={`relative border-2 border-dashed rounded-xl transition-all ${
           ocrDragging
             ? "border-gold-400 bg-gold-50"
@@ -394,7 +399,19 @@ export default function NewInvoicePage() {
             : "border-navy-200 bg-white hover:border-gold-400 hover:bg-gold-50"
         }`}
       >
-        <label className="flex flex-col items-center justify-center gap-2 py-6 cursor-pointer">
+        {/* クリックでファイル選択（label を使わず button + input ref で制御） */}
+        <input
+          id="ocr-file-input"
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png,.tiff"
+          className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleOcrFile(f); e.target.value = "" }}
+          disabled={ocrLoading}
+        />
+        <div
+          className="flex flex-col items-center justify-center gap-2 py-6 cursor-pointer select-none"
+          onClick={() => !ocrLoading && document.getElementById("ocr-file-input")?.click()}
+        >
           {ocrLoading ? (
             <>
               <Loader2 size={28} className="text-gold-500 animate-spin" />
@@ -418,14 +435,7 @@ export default function NewInvoicePage() {
               <p className="text-[11px] text-navy-400">PDF・JPG・PNG に対応 ／ クリックでファイルを選択</p>
             </>
           )}
-          <input
-            type="file"
-            accept=".pdf,.jpg,.jpeg,.png,.tiff"
-            className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleOcrFile(f); e.target.value = "" }}
-            disabled={ocrLoading}
-          />
-        </label>
+        </div>
         {ocrError && (
           <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border-t border-red-200 rounded-b-xl">
             <AlertCircle size={13} className="text-red-500 flex-shrink-0" />
