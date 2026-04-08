@@ -1,101 +1,119 @@
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
-import Anthropic from "@anthropic-ai/sdk"
+import { DocumentAnalysisClient, AzureKeyCredential } from "@azure/ai-form-recognizer"
 import { NextRequest, NextResponse } from "next/server"
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
+function getClient() {
+  const endpoint = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT
+  const key      = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY
+  if (!endpoint || !key) throw new Error("Azure Document Intelligence の環境変数が未設定です")
+  return new DocumentAnalysisClient(endpoint, new AzureKeyCredential(key))
+}
+
+// CurrencyValue または number から金額を取得
+function toAmount(v: unknown): number | null {
+  if (v == null) return null
+  if (typeof v === "number") return v
+  if (typeof v === "object" && "amount" in (v as any)) return (v as any).amount ?? null
+  return null
+}
+
+// Date → YYYY-MM-DD
+function toDateStr(v: unknown): string | null {
+  if (!v) return null
+  const d = v instanceof Date ? v : new Date(v as string)
+  if (isNaN(d.getTime())) return null
+  return d.toISOString().slice(0, 10)
+}
 
 export async function POST(req: NextRequest) {
   const session = await auth()
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || (session.user as any).role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const formData = await req.formData()
-  const file = formData.get("file") as File
-  if (!file) {
-    return NextResponse.json({ error: "No file" }, { status: 400 })
-  }
+  const file = formData.get("file") as File | null
+  if (!file) return NextResponse.json({ error: "ファイルがありません" }, { status: 400 })
 
-  // Base64変換
-  const bytes = await file.arrayBuffer()
-  const base64 = Buffer.from(bytes).toString("base64")
-
-  // OcrJobを作成
-  const job = await prisma.ocrJob.create({
-    data: {
-      originalFileUrl: file.name,
-      status: "PROCESSING",
-      createdByUserId: session.user.id,
-    },
-  })
+  // ファイルを Buffer に変換
+  const bytes  = await file.arrayBuffer()
+  const buffer = Buffer.from(bytes)
 
   try {
-    // Claude Vision で OCR
-    const message = await client.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 1024,
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type: "document",
-            source: {
-              type: "base64",
-              media_type: "application/pdf",
-              data: base64,
-            },
-          },
-          {
-            type: "text",
-            text: `この請求書PDFから以下の項目をJSON形式で抽出してください。
-各項目に信頼度(0.0〜1.0)も付けてください。
-JSONのみを返し、説明文は不要です。
+    const client  = getClient()
+    const poller  = await client.beginAnalyzeDocument(
+      "prebuilt-invoice",
+      buffer
+    )
+    const result  = await poller.pollUntilDone()
+    const doc     = result.documents?.[0]
 
-{
-  "invoiceNumber":   { "value": "INV-001", "confidence": 0.95 },
-  "issueDate":       { "value": "2024-01-31", "confidence": 0.9 },
-  "dueDate":         { "value": "2024-03-31", "confidence": 0.85 },
-  "companyName":     { "value": "株式会社〇〇", "confidence": 0.8 },
-  "subject":         { "value": "システム開発費", "confidence": 0.9 },
-  "subtotal":        { "value": 1000000, "confidence": 0.95 },
-  "tax":             { "value": 100000, "confidence": 0.95 },
-  "amount":          { "value": 1100000, "confidence": 0.95 }
-}`,
-          },
-        ],
-      }],
-    })
-
-    const raw = (message.content[0] as any).text
-    let extracted: Record<string, { value: unknown; confidence: number }> = {}
-
-    try {
-      extracted = JSON.parse(raw.replace(/```json|```/g, "").trim())
-    } catch {
-      throw new Error("OCR parse failed")
+    if (!doc) {
+      return NextResponse.json({ error: "請求書を認識できませんでした" }, { status: 422 })
     }
 
-    // 結果を保存
-    await prisma.ocrJob.update({
-      where: { id: job.id },
-      data: {
-        extractedJson: extracted as any,
-        status: "REVIEW",
+    const f = doc.fields as Record<string, any>
+
+    // 件名: 明細1件目の説明 or 空
+    const firstItem    = f.items?.values?.[0]?.properties
+    const subjectValue = firstItem?.description?.content ?? null
+
+    // 税抜・税額・合計を取得
+    const subTotalAmt  = toAmount(f.subTotal?.value)
+    const totalTaxAmt  = toAmount(f.totalTax?.value)
+    const invoiceTotAmt = toAmount(f.invoiceTotal?.value)
+
+    // 税抜が取れない場合は合計から逆算（10%仮定）
+    const subtotal = subTotalAmt
+      ?? (invoiceTotAmt != null ? Math.round(invoiceTotAmt / 1.1) : null)
+    const tax = totalTaxAmt
+      ?? (subtotal != null && invoiceTotAmt != null ? invoiceTotAmt - subtotal : null)
+
+    const extracted = {
+      invoiceNumber: {
+        value:      f.invoiceId?.content ?? null,
+        confidence: f.invoiceId?.confidence ?? 0,
       },
-    })
+      vendorName: {
+        value:      f.vendorName?.content ?? null,
+        confidence: f.vendorName?.confidence ?? 0,
+      },
+      customerName: {
+        value:      f.customerName?.content ?? null,
+        confidence: f.customerName?.confidence ?? 0,
+      },
+      issueDate: {
+        value:      toDateStr(f.invoiceDate?.value) ?? f.invoiceDate?.content ?? null,
+        confidence: f.invoiceDate?.confidence ?? 0,
+      },
+      dueDate: {
+        value:      toDateStr(f.dueDate?.value) ?? f.dueDate?.content ?? null,
+        confidence: f.dueDate?.confidence ?? 0,
+      },
+      subject: {
+        value:      subjectValue,
+        confidence: firstItem?.description?.confidence ?? 0,
+      },
+      subtotal: {
+        value:      subtotal,
+        confidence: f.subTotal?.confidence ?? (invoiceTotAmt != null ? 0.7 : 0),
+      },
+      tax: {
+        value:      tax,
+        confidence: f.totalTax?.confidence ?? 0,
+      },
+      amount: {
+        value:      invoiceTotAmt,
+        confidence: f.invoiceTotal?.confidence ?? 0,
+      },
+    }
 
-    return NextResponse.json({ jobId: job.id, extracted })
+    return NextResponse.json({ extracted })
 
-  } catch (error: any) {
-    await prisma.ocrJob.update({
-      where: { id: job.id },
-      data: { status: "FAILED" },
-    })
+  } catch (e: any) {
+    console.error("[ocr/upload]", e?.message ?? e)
     return NextResponse.json(
-      { error: error.message || "OCR failed" },
+      { error: e?.message ?? "OCR処理に失敗しました" },
       { status: 500 }
     )
   }

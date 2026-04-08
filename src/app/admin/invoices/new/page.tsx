@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, ScanText, CheckCircle2, AlertCircle, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { FileDropZone } from "@/components/shared/FileDropZone"
 
@@ -45,6 +45,12 @@ export default function NewInvoicePage() {
   const [imgDragging, setImgDragging]           = useState(false)
   const [submitting, setSubmitting]     = useState(false)
   const [error, setError]               = useState("")
+
+  // OCR
+  const [ocrLoading, setOcrLoading]   = useState(false)
+  const [ocrError,   setOcrError]     = useState("")
+  const [ocrFields,  setOcrFields]    = useState<Set<string>>(new Set())
+  const [ocrDragging, setOcrDragging] = useState(false)
 
   // 被請求書インライン作成
   const [showNewRcv, setShowNewRcv]         = useState(false)
@@ -111,6 +117,68 @@ export default function NewInvoicePage() {
   const totalRcvInc = selectedRcvList.reduce((s, r) => s + Number(r.amount), 0)  // 合計税込
   const totalRcvEx  = Math.round(totalRcvInc / 1.1)                               // 合計税抜
   const totalRcvTax = totalRcvInc - totalRcvEx
+
+  const handleOcrFile = async (file: File) => {
+    setOcrLoading(true)
+    setOcrError("")
+    setOcrFields(new Set())
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      const res = await fetch("/api/ocr/upload", { method: "POST", body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "OCR処理に失敗しました")
+
+      const e = data.extracted
+      const filled = new Set<string>()
+
+      if (e.invoiceNumber?.value) {
+        setValue("invoiceNumber", e.invoiceNumber.value)
+        filled.add("invoiceNumber")
+      }
+      if (e.issueDate?.value) {
+        setValue("issueDate", e.issueDate.value)
+        filled.add("issueDate")
+      }
+      if (e.dueDate?.value) {
+        setValue("dueDate", e.dueDate.value)
+        filled.add("dueDate")
+      }
+      if (e.subject?.value) {
+        setValue("subject", e.subject.value)
+        filled.add("subject")
+      }
+      if (e.subtotal?.value != null) {
+        setValue("subtotal", Math.round(e.subtotal.value))
+        filled.add("subtotal")
+      }
+      // 取引先名で部分一致マッチング（vendorName / customerName）
+      const nameHint = e.vendorName?.value ?? e.customerName?.value ?? ""
+      if (nameHint) {
+        const norm = (s: string) => s.replace(/[株式会社|有限会社|合同会社|\s]/g, "").toLowerCase()
+        const matched = companies.find(c =>
+          norm(c.name).includes(norm(nameHint)) || norm(nameHint).includes(norm(c.name))
+        )
+        if (matched) {
+          setValue("companyId", matched.id)
+          filled.add("companyId")
+        }
+      }
+
+      setOcrFields(filled)
+    } catch (e: any) {
+      setOcrError(e.message ?? "OCR処理に失敗しました")
+    } finally {
+      setOcrLoading(false)
+    }
+  }
+
+  const handleOcrDrop = (ev: React.DragEvent) => {
+    ev.preventDefault()
+    setOcrDragging(false)
+    const file = ev.dataTransfer.files?.[0]
+    if (file) handleOcrFile(file)
+  }
 
   const handleAddCompany = async () => {
     if (!newCompanyName.trim()) return
@@ -305,6 +373,59 @@ export default function NewInvoicePage() {
         請求書一覧に戻る
       </Link>
 
+      {/* OCR ドロップゾーン */}
+      <div
+        onDragOver={e => { e.preventDefault(); setOcrDragging(true) }}
+        onDragLeave={e => { e.preventDefault(); setOcrDragging(false) }}
+        onDrop={handleOcrDrop}
+        className={`relative border-2 border-dashed rounded-xl transition-all ${
+          ocrDragging
+            ? "border-gold-400 bg-gold-50"
+            : ocrFields.size > 0
+            ? "border-emerald-400 bg-emerald-50"
+            : "border-navy-200 bg-white hover:border-gold-400 hover:bg-gold-50"
+        }`}
+      >
+        <label className="flex flex-col items-center justify-center gap-2 py-6 cursor-pointer">
+          {ocrLoading ? (
+            <>
+              <Loader2 size={28} className="text-gold-500 animate-spin" />
+              <p className="text-[13px] font-medium text-navy-600">OCR解析中...</p>
+              <p className="text-[11px] text-navy-400">Azure Document Intelligence で処理中です</p>
+            </>
+          ) : ocrFields.size > 0 ? (
+            <>
+              <CheckCircle2 size={28} className="text-emerald-500" />
+              <p className="text-[13px] font-medium text-emerald-700">
+                {ocrFields.size}項目を自動入力しました
+              </p>
+              <p className="text-[11px] text-navy-400">別ファイルをドロップして上書きできます</p>
+            </>
+          ) : (
+            <>
+              <ScanText size={28} className="text-navy-300" />
+              <p className="text-[13px] font-medium text-navy-600">
+                請求書をドロップしてOCR自動入力
+              </p>
+              <p className="text-[11px] text-navy-400">PDF・JPG・PNG に対応 ／ クリックでファイルを選択</p>
+            </>
+          )}
+          <input
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.tiff"
+            className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleOcrFile(f); e.target.value = "" }}
+            disabled={ocrLoading}
+          />
+        </label>
+        {ocrError && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border-t border-red-200 rounded-b-xl">
+            <AlertCircle size={13} className="text-red-500 flex-shrink-0" />
+            <p className="text-[12px] text-red-600">{ocrError}</p>
+          </div>
+        )}
+      </div>
+
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         {/* 基本情報 */}
         <div className="card p-5">
@@ -314,8 +435,11 @@ export default function NewInvoicePage() {
           </h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">請求書番号</label>
-              <input className="form-input" {...register("invoiceNumber")} />
+              <div className="flex items-center gap-1.5 mb-1">
+                <label className="form-label !mb-0">請求書番号</label>
+                {ocrFields.has("invoiceNumber") && <span className="text-[10px] text-emerald-600 font-medium">OCR</span>}
+              </div>
+              <input className={`form-input ${ocrFields.has("invoiceNumber") ? "border-emerald-300 bg-emerald-50" : ""}`} {...register("invoiceNumber")} />
               {errors.invoiceNumber && (
                 <p className="text-[11px] text-red-600 mt-1">
                   {errors.invoiceNumber.message}
@@ -324,7 +448,10 @@ export default function NewInvoicePage() {
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] font-medium text-navy-600 uppercase tracking-[0.05em]">取引先</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-navy-600 uppercase tracking-[0.05em]">取引先</span>
+                  {ocrFields.has("companyId") && <span className="text-[10px] text-emerald-600 font-medium">OCR</span>}
+                </div>
                 <button
                   type="button"
                   onClick={() => { setShowNewCompany(v => !v); setNewCompanyName("") }}
@@ -346,8 +473,11 @@ export default function NewInvoicePage() {
               )}
             </div>
             <div className="col-span-2">
-              <label className="form-label">件名</label>
-              <input className="form-input" placeholder="Webシステム開発費"
+              <div className="flex items-center gap-1.5 mb-1">
+                <label className="form-label !mb-0">件名</label>
+                {ocrFields.has("subject") && <span className="text-[10px] text-emerald-600 font-medium">OCR</span>}
+              </div>
+              <input className={`form-input ${ocrFields.has("subject") ? "border-emerald-300 bg-emerald-50" : ""}`} placeholder="Webシステム開発費"
                      {...register("subject")} />
               {errors.subject && (
                 <p className="text-[11px] text-red-600 mt-1">
@@ -356,12 +486,18 @@ export default function NewInvoicePage() {
               )}
             </div>
             <div>
-              <label className="form-label">請求日</label>
-              <input type="date" className="form-input" {...register("issueDate")} />
+              <div className="flex items-center gap-1.5 mb-1">
+                <label className="form-label !mb-0">請求日</label>
+                {ocrFields.has("issueDate") && <span className="text-[10px] text-emerald-600 font-medium">OCR</span>}
+              </div>
+              <input type="date" className={`form-input ${ocrFields.has("issueDate") ? "border-emerald-300 bg-emerald-50" : ""}`} {...register("issueDate")} />
             </div>
             <div>
-              <label className="form-label">支払期限</label>
-              <input type="date" className="form-input" {...register("dueDate")} />
+              <div className="flex items-center gap-1.5 mb-1">
+                <label className="form-label !mb-0">支払期限</label>
+                {ocrFields.has("dueDate") && <span className="text-[10px] text-emerald-600 font-medium">OCR</span>}
+              </div>
+              <input type="date" className={`form-input ${ocrFields.has("dueDate") ? "border-emerald-300 bg-emerald-50" : ""}`} {...register("dueDate")} />
             </div>
             <div>
               <label className="form-label">担当者</label>
@@ -414,8 +550,11 @@ export default function NewInvoicePage() {
           </h2>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="form-label">小計</label>
-              <input type="number" className="form-input" placeholder="0"
+              <div className="flex items-center gap-1.5 mb-1">
+                <label className="form-label !mb-0">小計</label>
+                {ocrFields.has("subtotal") && <span className="text-[10px] text-emerald-600 font-medium">OCR</span>}
+              </div>
+              <input type="number" className={`form-input ${ocrFields.has("subtotal") ? "border-emerald-300 bg-emerald-50" : ""}`} placeholder="0"
                      {...register("subtotal", { valueAsNumber: true })} />
               {errors.subtotal && (
                 <p className="text-[11px] text-red-600 mt-1">
