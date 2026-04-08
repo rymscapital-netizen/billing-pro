@@ -10,7 +10,7 @@ function getSupabase() {
   )
 }
 
-// 自社が受け取った請求書（経費）= ownerCompanyId でフィルタ
+// 自社が受け取った請求書（経費）= ownerCompanyId でフィルタ（issueDate 基準）
 async function getMonthlyExpense(
   sb: ReturnType<typeof getSupabase>,
   start: Date, end: Date,
@@ -19,13 +19,13 @@ async function getMonthlyExpense(
   const { data, error } = await sb.from("ReceivedInvoice")
     .select("amount")
     .eq("ownerCompanyId", ownerCompanyId)
-    .gte("dueDate", start.toISOString())
-    .lte("dueDate", end.toISOString())
+    .gte("issueDate", start.toISOString())
+    .lte("issueDate", end.toISOString())
   if (error) throw new Error(`getMonthlyExpense: ${error.message}`)
   return (data ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0)
 }
 
-// 自社が発行した請求書（売上）= issuerCompanyId でフィルタ
+// 自社が発行した請求書（売上）= issuerCompanyId でフィルタ（issueDate 基準）
 async function getMonthlyPL(
   sb: ReturnType<typeof getSupabase>,
   start: Date, end: Date,
@@ -34,8 +34,8 @@ async function getMonthlyPL(
 ) {
   let q = sb.from("Invoice")
     .select("amount, subtotal, status, InvoiceProfit(cost, grossProfit)")
-    .gte("dueDate", start.toISOString())
-    .lte("dueDate", end.toISOString())
+    .gte("issueDate", start.toISOString())
+    .lte("issueDate", end.toISOString())
     .neq("status", "DRAFT")
     .eq("issuerCompanyId", issuerCompanyId)
 
@@ -73,6 +73,19 @@ function calcPL(rows: any[]) {
   }
 }
 
+// 被請求書を期間でフィルタして集計
+function calcPayable(rows: any[], start?: Date, end?: Date) {
+  const filtered = start && end
+    ? rows.filter((r: any) => {
+        const d = new Date(r.issueDate)
+        return d >= start && d <= end
+      })
+    : rows
+  const total     = filtered.reduce((s: number, r: any) => s + Number(r.amount), 0)
+  const paid      = filtered.filter((r: any) => r.status === "PAID").reduce((s: number, r: any) => s + Number(r.amount), 0)
+  return { total, paid, remaining: total - paid }
+}
+
 export async function GET(req: Request) {
   try {
     const session = await auth()
@@ -93,8 +106,7 @@ export async function GET(req: Request) {
     const u   = session.user as any
     const cid = u.companyId as string
 
-    // 12ヶ月トレンド用の開始月（クエリパラメータ startMonth=YYYY-MM、省略時は11ヶ月前）
-    // ※ issueDate（発行日）基準で集計するため、当月発行の請求書は常に当月に表示される
+    // 12ヶ月トレンド（issueDate 基準）
     const startMonthParam = searchParams.get("startMonth")
     const trendStart = startMonthParam
       ? startOfMonth(new Date(
@@ -102,10 +114,9 @@ export async function GET(req: Request) {
           parseInt(startMonthParam.split("-")[1]) - 1,
           1
         ))
-      : startOfMonth(subMonths(now, 11)) // デフォルト: 11ヶ月前〜今月（12ヶ月）
+      : startOfMonth(subMonths(now, 11))
     const trendEnd = endOfMonth(addMonths(trendStart, 11))
 
-    // ADMIN・CLIENT 共通：自社が発行した請求書を売上として集計 / 受け取った請求書を経費として集計
     const [
       prevMonth, thisMonth, nextMonth,
       prevExpense, thisExpense, nextExpense,
@@ -117,17 +128,14 @@ export async function GET(req: Request) {
       getMonthlyExpense(sb, prevStart, prevEnd, cid),
       getMonthlyExpense(sb, msStart,   msEnd,   cid),
       getMonthlyExpense(sb, nextStart, nextEnd, cid),
-      // 12ヶ月分の Invoice（発行日基準）を一括取得
       sb.from("Invoice").select("amount, issueDate")
         .eq("issuerCompanyId", cid).neq("status", "DRAFT")
         .gte("issueDate", trendStart.toISOString()).lte("issueDate", trendEnd.toISOString()),
-      // 12ヶ月分の ReceivedInvoice（発行日基準）を一括取得
       sb.from("ReceivedInvoice").select("amount, issueDate")
         .eq("ownerCompanyId", cid)
         .gte("issueDate", trendStart.toISOString()).lte("issueDate", trendEnd.toISOString()),
     ])
 
-    // JS 側で月別に集計（issueDate ベース、DB へのクエリは2本のみ）
     const monthlyTrend = Array.from({ length: 12 }, (_, i) => {
       const m  = addMonths(trendStart, i)
       const ms = startOfMonth(m).getTime()
@@ -149,7 +157,6 @@ export async function GET(req: Request) {
     const thisMonthPaid = thisMonth.paid
 
     if (u.role === "ADMIN") {
-      // 自社発行の未回収・延滞・未消込
       let overdueQ = sb.from("Invoice").select("*", { count: "exact", head: true })
         .eq("issuerCompanyId", cid).eq("status", "OVERDUE")
       let unpaidQ  = sb.from("Invoice").select("amount")
@@ -164,23 +171,25 @@ export async function GET(req: Request) {
         { count: overdueCount },
         { count: unclearedCount },
         { data: allUnpaidRows, error: e1 },
-        // 被請求書（自社 ownerCompanyId）= 全期間の未払い経費
         { data: rcvRows, error: e2 },
       ] = await Promise.all([
         overdueQ,
         sb.from("InvoicePayment").select("*", { count: "exact", head: true })
           .eq("paymentStatus", "CONFIRMED").eq("clearStatus", "UNCLEARED"),
         unpaidQ,
-        sb.from("ReceivedInvoice").select("amount, status")
+        sb.from("ReceivedInvoice").select("amount, status, issueDate")
           .eq("ownerCompanyId", cid),
       ])
       if (e1) throw new Error(`allUnpaid: ${e1.message}`)
       if (e2) throw new Error(`rcvRows: ${e2.message}`)
 
       const uncollectedTotal = (allUnpaidRows ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0)
-      const payableTotal     = (rcvRows ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0)
-      const payablePaid      = (rcvRows ?? []).filter((r: any) => r.status === "PAID").reduce((s: number, r: any) => s + Number(r.amount), 0)
       const profitRate       = thisMonthDue > 0 ? Math.round((thisMonth.profitEx / thisMonthDue) * 1000) / 10 : 0
+
+      const payableAll       = calcPayable(rcvRows ?? [])
+      const payableThisMonth = calcPayable(rcvRows ?? [], msStart,   msEnd)
+      const payablePrevMonth = calcPayable(rcvRows ?? [], prevStart, prevEnd)
+      const payableNextMonth = calcPayable(rcvRows ?? [], nextStart, nextEnd)
 
       return NextResponse.json({
         role: "ADMIN",
@@ -190,8 +199,17 @@ export async function GET(req: Request) {
         uncollectedTotal, grossProfit: thisMonth.profitEx, profitRate,
         unclearedCount: unclearedCount ?? 0,
         overdueCount:   overdueCount   ?? 0,
-        payableTotal, payablePaid,
-        payableRemaining: payableTotal - payablePaid,
+        // 後方互換
+        payableTotal:     payableAll.total,
+        payablePaid:      payableAll.paid,
+        payableRemaining: payableAll.remaining,
+        // 期間別
+        payable: {
+          all:       payableAll,
+          thisMonth: payableThisMonth,
+          prevMonth: payablePrevMonth,
+          nextMonth: payableNextMonth,
+        },
         monthlyPL: {
           prev:    { ...plShape(prevMonth), expenseTotal: prevExpense,  balance: prevMonth.salesInc  - prevExpense  },
           current: { ...plShape(thisMonth), expenseTotal: thisExpense,  balance: thisMonth.salesInc  - thisExpense  },
@@ -201,7 +219,7 @@ export async function GET(req: Request) {
       })
     }
 
-    // ── 取引先（CLIENT）────────────────────────────────────────────────────
+    // ── 取引先（CLIENT）
     const [
       { count: overdueCount },
       { count: unclearedCount },
@@ -218,18 +236,21 @@ export async function GET(req: Request) {
         .in("status", ["ISSUED", "PENDING", "OVERDUE", "PAYMENT_CONFIRMED"]),
       (sb.from("Invoice").select("*", { count: "exact", head: true })
         .eq("issuerCompanyId", cid)
-        .gte("dueDate", nextStart.toISOString()).lte("dueDate", nextEnd.toISOString())
+        .gte("issueDate", nextStart.toISOString()).lte("issueDate", nextEnd.toISOString())
         .neq("status", "DRAFT") as any),
-      sb.from("ReceivedInvoice").select("amount, status")
+      sb.from("ReceivedInvoice").select("amount, status, issueDate")
         .eq("ownerCompanyId", cid),
     ])
     if (e1) throw new Error(`allUnpaid: ${e1.message}`)
     if (e2) throw new Error(`rcvRows: ${e2.message}`)
 
     const uncollectedTotal = (allUnpaidRows ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0)
-    const payableTotal     = (rcvRows ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0)
-    const payablePaid      = (rcvRows ?? []).filter((r: any) => r.status === "PAID").reduce((s: number, r: any) => s + Number(r.amount), 0)
     const profitRate       = thisMonthDue > 0 ? Math.round((thisMonth.profitEx / thisMonthDue) * 1000) / 10 : 0
+
+    const payableAll       = calcPayable(rcvRows ?? [])
+    const payableThisMonth = calcPayable(rcvRows ?? [], msStart,   msEnd)
+    const payablePrevMonth = calcPayable(rcvRows ?? [], prevStart, prevEnd)
+    const payableNextMonth = calcPayable(rcvRows ?? [], nextStart, nextEnd)
 
     return NextResponse.json({
       role: "CLIENT",
@@ -240,8 +261,17 @@ export async function GET(req: Request) {
       uncollectedTotal, grossProfit: thisMonth.profitEx, profitRate,
       unclearedCount: unclearedCount ?? 0,
       overdueCount:   overdueCount   ?? 0,
-      payableTotal, payablePaid,
-      payableRemaining: payableTotal - payablePaid,
+      // 後方互換
+      payableTotal:     payableAll.total,
+      payablePaid:      payableAll.paid,
+      payableRemaining: payableAll.remaining,
+      // 期間別
+      payable: {
+        all:       payableAll,
+        thisMonth: payableThisMonth,
+        prevMonth: payablePrevMonth,
+        nextMonth: payableNextMonth,
+      },
       monthlyPL: {
         prev:    { ...plShape(prevMonth), expenseTotal: prevExpense,  balance: prevMonth.salesInc  - prevExpense  },
         current: { ...plShape(thisMonth), expenseTotal: thisExpense,  balance: thisMonth.salesInc  - thisExpense  },

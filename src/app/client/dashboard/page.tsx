@@ -12,23 +12,34 @@ const YAxis           = dynamic(() => import("recharts").then(m => m.YAxis),    
 const CartesianGrid   = dynamic(() => import("recharts").then(m => m.CartesianGrid),   { ssr: false })
 const Tooltip         = dynamic(() => import("recharts").then(m => m.Tooltip),         { ssr: false })
 const Legend          = dynamic(() => import("recharts").then(m => m.Legend),          { ssr: false })
+const ReferenceLine   = dynamic(() => import("recharts").then(m => m.ReferenceLine),   { ssr: false })
 const ResponsiveContainer = dynamic(() => import("recharts").then(m => m.ResponsiveContainer), { ssr: false })
 
 const yen = (n: number) => `¥${Number(n || 0).toLocaleString("ja-JP")}`
 const yenShort = (n: number) => {
-  if (n >= 1_000_000) return `¥${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 10_000)    return `¥${(n / 10_000).toFixed(0)}万`
-  return `¥${n.toLocaleString("ja-JP")}`
+  const abs = Math.abs(n)
+  const sign = n < 0 ? "-" : ""
+  if (abs >= 1_000_000) return `${sign}¥${(abs / 1_000_000).toFixed(1)}M`
+  if (abs >= 10_000)    return `${sign}¥${(abs / 10_000).toFixed(0)}万`
+  return `${sign}¥${abs.toLocaleString("ja-JP")}`
 }
 
 const MONTH_LABELS = ["前月実績", "今月実績", "来月予想"]
+
+type PayablePeriod = "all" | "thisMonth" | "prevMonth" | "nextMonth"
+const PAYABLE_PERIOD_LABELS: { key: PayablePeriod; label: string }[] = [
+  { key: "all",       label: "全期間" },
+  { key: "thisMonth", label: "今月" },
+  { key: "prevMonth", label: "先月" },
+  { key: "nextMonth", label: "来月" },
+]
 
 const toYearMonthValue = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
 
 const defaultStartMonth = () => {
   const d = new Date()
-  d.setMonth(d.getMonth() - 11) // 11ヶ月前〜今月（12ヶ月・issueDate基準）
+  d.setMonth(d.getMonth() - 11)
   return toYearMonthValue(d)
 }
 
@@ -38,6 +49,7 @@ export default function ClientDashboardPage() {
   const [allUsers, setAllUsers]     = useState<{ id: string; name: string }[]>([])
   const [filterUserId, setFilterUserId] = useState("")
   const [startMonth, setStartMonth] = useState(defaultStartMonth)
+  const [payablePeriod, setPayablePeriod] = useState<PayablePeriod>("all")
 
   useEffect(() => {
     fetch("/api/users")
@@ -62,10 +74,17 @@ export default function ClientDashboardPage() {
     { label: "今月未回収額", value: data ? yen(data.thisMonthRemaining) : "…", color: "#c43030" },
   ]
 
+  // 期間別被請求書データ
+  const payableData = data?.payable?.[payablePeriod] ?? {
+    total:     data?.payableTotal     ?? 0,
+    paid:      data?.payablePaid      ?? 0,
+    remaining: data?.payableRemaining ?? 0,
+  }
+  const payablePeriodLabel = PAYABLE_PERIOD_LABELS.find(p => p.key === payablePeriod)?.label ?? ""
   const payableCards = [
-    { label: "被請求書合計",   value: data ? yen(data.payableTotal     ?? 0) : "…", color: "#c49828" },
-    { label: "支払済み合計",   value: data ? yen(data.payablePaid      ?? 0) : "…", color: "#2e9e62" },
-    { label: "未払い残額",     value: data ? yen(data.payableRemaining ?? 0) : "…", color: "#c43030" },
+    { label: "被請求書合計", value: data ? yen(payableData.total)     : "…", color: "#c49828" },
+    { label: "支払済み合計", value: data ? yen(payableData.paid)      : "…", color: "#2e9e62" },
+    { label: "未払い残額",   value: data ? yen(payableData.remaining) : "…", color: "#c43030" },
   ]
 
   const pl = data?.monthlyPL
@@ -117,11 +136,12 @@ export default function ClientDashboardPage() {
       ]
     : []
 
+  // 経費はマイナス値で表示（ゼロ線より下）
   const chartData = (data?.monthlyTrend ?? []).map((m: any) => ({
-    name:         m.month,
+    name:           m.month,
     "売上(税込)":    m.salesInc,
-    "経費（被請求）": m.expenseTotal,
-    "収支":          m.balance,
+    "経費（被請求）": -m.expenseTotal,   // マイナスにして下方向に表示
+    "収支":           m.balance,
   }))
 
   return (
@@ -130,7 +150,6 @@ export default function ClientDashboardPage() {
         <h1 style={{ fontSize: "24px", fontWeight: "600", color: "#0f1f3d" }}>
           ダッシュボード
         </h1>
-        {/* 担当者フィルター */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.06em" }}>表示対象</span>
           <select
@@ -173,7 +192,7 @@ export default function ClientDashboardPage() {
 
       {/* 売上サマリー */}
       <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: "32px", marginBottom: "10px" }}>
-        売上サマリー（今月）
+        売上サマリー（今月・発行日基準）
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
         {salesCards.map((card) => (
@@ -184,10 +203,30 @@ export default function ClientDashboardPage() {
         ))}
       </div>
 
-      {/* 請求される項目 */}
-      <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: "32px", marginBottom: "10px" }}>
-        被請求書サマリー（全期間）
-      </p>
+      {/* 被請求書サマリー（期間フィルター付き） */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "32px", marginBottom: "10px" }}>
+        <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
+          被請求書サマリー（{payablePeriodLabel}・発行日基準）
+        </p>
+        <div style={{ display: "flex", gap: "4px" }}>
+          {PAYABLE_PERIOD_LABELS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setPayablePeriod(key)}
+              style={{
+                padding: "4px 10px", fontSize: "11px", borderRadius: "6px", cursor: "pointer",
+                border: payablePeriod === key ? "1px solid #0f1f3d" : "1px solid #e4eaf4",
+                background: payablePeriod === key ? "#0f1f3d" : "#fff",
+                color: payablePeriod === key ? "#fff" : "#8a9ab8",
+                fontWeight: payablePeriod === key ? "600" : "400",
+                transition: "all 0.15s",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
         {payableCards.map((card) => (
           <div key={card.label} style={{ background: "#fff", borderRadius: "10px", border: "1px solid #e4eaf4", padding: "20px" }}>
@@ -199,7 +238,7 @@ export default function ClientDashboardPage() {
 
       {/* 月次 PL テーブル */}
       <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: "32px", marginBottom: "10px" }}>
-        月次 損益サマリー
+        月次 損益サマリー（発行日基準）
       </p>
       <div style={{ background: "#fff", borderRadius: "10px", border: "1px solid #e4eaf4", overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
@@ -254,9 +293,14 @@ export default function ClientDashboardPage() {
 
       {/* グラフ */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "32px", marginBottom: "10px" }}>
-        <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
-          月次推移グラフ（12ヶ月・発行日基準）
-        </p>
+        <div>
+          <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
+            月次推移グラフ（12ヶ月・発行日基準）
+          </p>
+          <p style={{ fontSize: "10px", color: "#b0bdd4", marginTop: "3px" }}>
+            売上はゼロより上・経費はゼロより下に表示
+          </p>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span style={{ fontSize: "11px", color: "#8a9ab8" }}>開始月</span>
           <input
@@ -283,19 +327,27 @@ export default function ClientDashboardPage() {
         {!mounted || !data ? (
           <div style={{ textAlign: "center", color: "#8a9ab8", padding: "40px 0", fontSize: "13px" }}>読み込み中…</div>
         ) : (
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={320}>
             <BarChart data={chartData} margin={{ top: 8, right: 24, left: 16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e4eaf4" />
               <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#8a9ab8" }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={yenShort} tick={{ fontSize: 11, fill: "#8a9ab8" }} axisLine={false} tickLine={false} width={72} />
+              <YAxis
+                tickFormatter={yenShort}
+                tick={{ fontSize: 11, fill: "#8a9ab8" }}
+                axisLine={false} tickLine={false} width={72}
+              />
+              <ReferenceLine y={0} stroke="#8a9ab8" strokeWidth={1.5} />
               <Tooltip
-                formatter={(value: number, name: string) => [yen(value), name]}
+                formatter={(value: number, name: string) => {
+                  // 経費はマイナスで格納しているが表示は絶対値
+                  return [yen(Math.abs(value)), name]
+                }}
                 contentStyle={{ fontSize: "12px", borderRadius: "8px", border: "1px solid #e4eaf4" }}
               />
               <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "16px" }} />
-              <Bar dataKey="売上(税込)" fill="#4e7cff" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="経費（被請求）" fill="#a78bfa" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="収支" fill="#34d399" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="売上(税込)"    fill="#4e7cff" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="経費（被請求）" fill="#a78bfa" radius={[0, 0, 4, 4]} />
+              <Bar dataKey="収支"          fill="#34d399" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}
