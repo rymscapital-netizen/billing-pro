@@ -98,21 +98,18 @@ export async function POST(req: NextRequest) {
 
     const invoiceNumberRaw = findKv(kvPairs, ["請求書番号", "請求番号", "Invoice", "番号"])
     const issueDateRaw     = findKv(kvPairs, ["請求日", "発行日", "作成日"])
-    const dueDateRaw       = findKv(kvPairs, ["入金期日", "支払期限", "お支払期限", "期日", "支払日"])
-    const subjectRaw       = findKv(kvPairs, ["件名", "品名", "件　名", "摘要"])
-    const subtotalRaw      = findKv(kvPairs, ["小計", "税抜", "税抜金額"])
-    const taxRaw           = findKv(kvPairs, ["消費税", "税額", "消費税額"])
-    const totalRaw         = findKv(kvPairs, ["請求金額合計", "合計金額", "ご請求金額", "請求金額", "合計"])
+    const dueDateRaw       = findKv(kvPairs, ["入金期日", "支払期限", "お支払期限", "期日", "支払日", "振込期限", "お振込期限", "振込先"])
+    const subjectRaw       = findKv(kvPairs, ["件名", "品名", "件　名", "摘要", "内容", "請求内容", "品目", "件 名"])
+    const subtotalRaw      = findKv(kvPairs, ["小計", "税抜", "税抜金額", "税抜合計"])
+    const taxRaw           = findKv(kvPairs, ["消費税額", "消費税", "税額"])   // より具体的なキーを先に
+    const totalRaw         = findKv(kvPairs, ["請求金額合計", "合計金額", "ご請求金額", "請求金額", "合計", "税込合計"])
 
-    // フォールバック: 全文からregexで抽出
     // 請求書番号: 複数行の場合はINV-XXXXXXの行を優先、次に数字のみの行
     function extractInvoiceNumber(raw: string | null): string | null {
       if (!raw) return null
       const lines = raw.split(/\n/).map(l => l.trim()).filter(Boolean)
-      // INV-XXXXXX パターン優先
       const invLine = lines.find(l => /INV[-\s]?\d+/i.test(l))
       if (invLine) return invLine.match(/INV[-\s]?\d+/i)?.[0] ?? invLine
-      // 数字・ハイフンのみの行（日付でないもの）
       const numLine = lines.find(l => /^[\d\-\/]+$/.test(l) && !/^\d{4}[-\/]\d{2}[-\/]\d{2}$/.test(l))
       if (numLine) return numLine
       return lines[0] ?? null
@@ -125,27 +122,47 @@ export async function POST(req: NextRequest) {
       ?? parseDate(fullText.match(/請求日[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
 
     const dueDate = parseDate(dueDateRaw)
-      ?? parseDate(fullText.match(/(?:入金期日|支払期限|お支払期限)[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
-      ?? parseDate(fullText.match(/期限[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
+      ?? parseDate(fullText.match(/(?:入金期日|支払期限|お支払期限|振込期限)[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
+      ?? parseDate(fullText.match(/(?:期限|期日)[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
 
     const subject = subjectRaw
       ?? fullText.match(/件名[：: 　]*([^\n]+)/)?.[1]?.trim()
+      ?? fullText.match(/品名[：: 　]*([^\n]+)/)?.[1]?.trim()
+      ?? fullText.match(/摘要[：: 　]*([^\n]+)/)?.[1]?.trim()
+      ?? fullText.match(/内容[：: 　]*([^\n]+)/)?.[1]?.trim()
       ?? null
 
     const subtotal = parseCurrency(subtotalRaw)
-    const tax      = parseCurrency(taxRaw)
+    const taxRaw2  = parseCurrency(taxRaw)
     const total    = parseCurrency(totalRaw)
 
-    // 総額から税抜・税率を逆算
+    // 消費税率を全文から直接抽出（最も信頼できる方法）
+    let taxRate: number | null = null
+    const taxRateMatch = fullText.match(/(?:消費税|税率)[^\d%\n]*(\d+)\s*%/)
+      ?? fullText.match(/(\d+)\s*%\s*(?:消費税|税)/)
+    if (taxRateMatch) {
+      const r = parseInt(taxRateMatch[1])
+      taxRate = r === 10 ? 10 : r === 8 ? 8 : null
+    }
+
+    // 税額が小計以上なら誤抽出（Azure が合計行を拾った可能性）→ 破棄
+    const subtotalForValidation = subtotal ?? (total != null ? Math.round(total / 1.1) : null)
+    const validTax = (taxRaw2 != null && subtotalForValidation != null && taxRaw2 < subtotalForValidation * 0.5)
+      ? taxRaw2
+      : null
+
     const finalSubtotal = subtotal
       ?? (total != null ? Math.round(total / 1.1) : null)
-    const finalTax = tax
+
+    // 税額: 有効な抽出値 → 税率×小計で計算 → 合計-小計 の順で試みる
+    const finalTax = validTax
+      ?? (finalSubtotal != null && taxRate != null ? Math.round(finalSubtotal * taxRate / 100) : null)
       ?? (finalSubtotal != null && total != null ? total - finalSubtotal : null)
 
-    let taxRate: number | null = null
-    if (finalSubtotal && finalSubtotal > 0 && finalTax != null) {
+    // taxRate が未確定なら金額から逆算（8%か10%に限定）
+    if (taxRate === null && finalSubtotal && finalSubtotal > 0 && finalTax != null) {
       const rate = Math.round((finalTax / finalSubtotal) * 100)
-      taxRate = (rate >= 9 && rate <= 11) ? 10 : (rate >= 7 && rate <= 9) ? 8 : rate
+      taxRate = (rate >= 9 && rate <= 11) ? 10 : (rate >= 7 && rate <= 9) ? 8 : null
     }
 
     // 取引先名: キーから抽出（御中が付く行）
