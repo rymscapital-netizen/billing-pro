@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth"
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
-import { startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns"
+import { startOfMonth, endOfMonth, addMonths, subMonths, differenceInMonths } from "date-fns"
 
 function getSupabase() {
   return createClient(
@@ -106,7 +106,8 @@ export async function GET(req: Request) {
     const u   = session.user as any
     const cid = u.companyId as string
 
-    // 12ヶ月トレンド（dueDate 基準）
+    // トレンド（dueDate 基準）
+    // trendEnd は常に「来月末」固定 → 開始月を変えても現在のデータが消えない
     const startMonthParam = searchParams.get("startMonth")
     const trendStart = startMonthParam
       ? startOfMonth(new Date(
@@ -115,7 +116,8 @@ export async function GET(req: Request) {
           1
         ))
       : startOfMonth(subMonths(now, 11))
-    const trendEnd = endOfMonth(addMonths(trendStart, 11))
+    const trendEnd   = endOfMonth(addMonths(now, 1))   // 常に来月末で固定
+    const monthCount = differenceInMonths(trendEnd, trendStart) + 1
 
     const [
       prevMonth, thisMonth, nextMonth,
@@ -136,7 +138,7 @@ export async function GET(req: Request) {
         .gte("dueDate", trendStart.toISOString()).lte("dueDate", trendEnd.toISOString()),
     ])
 
-    const monthlyTrend = Array.from({ length: 12 }, (_, i) => {
+    const monthlyTrend = Array.from({ length: monthCount }, (_, i) => {
       const m  = addMonths(trendStart, i)
       const ms = startOfMonth(m).getTime()
       const me = endOfMonth(m).getTime()

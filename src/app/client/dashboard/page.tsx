@@ -295,7 +295,7 @@ export default function ClientDashboardPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "32px", marginBottom: "10px" }}>
         <div>
           <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
-            月次推移グラフ（12ヶ月・支払期日基準）
+            月次推移グラフ（支払期日基準）
           </p>
           <p style={{ fontSize: "10px", color: "#b0bdd4", marginTop: "3px" }}>
             売上はゼロより上・経費はゼロより下に表示
