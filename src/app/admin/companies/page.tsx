@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, X, Building2, Link, Copy, Check } from "lucide-react"
+import { Plus, X, Building2, Link, Copy, Check, Trash2, Link2, AlertTriangle } from "lucide-react"
 
 interface Company {
   id: string
@@ -10,6 +10,7 @@ interface Company {
   invoiceCount: number
   uncollectedTotal: number
   createdAt: string
+  connected: boolean
 }
 
 const yen = (n: number) => `¥${n.toLocaleString("ja-JP")}`
@@ -27,6 +28,11 @@ export default function CompaniesPage() {
   const [inviteUrl, setInviteUrl]         = useState("")
   const [inviteLoading, setInviteLoading] = useState(false)
   const [copied, setCopied]               = useState(false)
+
+  // 削除確認モーダル
+  const [deleteTarget, setDeleteTarget] = useState<Company | null>(null)
+  const [deleting, setDeleting]         = useState(false)
+  const [deleteError, setDeleteError]   = useState("")
 
   const fetchCompanies = async () => {
     setLoading(true)
@@ -89,6 +95,22 @@ export default function CompaniesPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    setDeleteError("")
+    const res = await fetch(`/api/companies/${deleteTarget.id}`, { method: "DELETE" })
+    if (!res.ok) {
+      const d = await res.json()
+      setDeleteError(d.error ?? "削除に失敗しました")
+      setDeleting(false)
+      return
+    }
+    setCompanies(prev => prev.filter(c => c.id !== deleteTarget.id))
+    setDeleteTarget(null)
+    setDeleting(false)
+  }
+
   return (
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -118,7 +140,9 @@ export default function CompaniesPage() {
                 <th className="text-right">未収金額</th>
                 <th>登録日</th>
                 <th>状態</th>
+                <th>取引先連携</th>
                 <th>招待</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -152,6 +176,16 @@ export default function CompaniesPage() {
                     </span>
                   </td>
                   <td>
+                    {c.connected ? (
+                      <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                        <Link2 size={11} />
+                        連携済み
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-navy-300">未連携</span>
+                    )}
+                  </td>
+                  <td>
                     <button
                       onClick={() => handleGenerateInvite(c)}
                       className="btn gap-1.5 text-[11px] py-1 px-2.5"
@@ -161,11 +195,20 @@ export default function CompaniesPage() {
                       招待URL
                     </button>
                   </td>
+                  <td>
+                    <button
+                      onClick={() => { setDeleteTarget(c); setDeleteError("") }}
+                      className="btn btn-icon text-navy-300 hover:text-red-500 border-transparent"
+                      title="削除"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </td>
                 </tr>
               ))}
               {companies.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-navy-400 py-12">
+                  <td colSpan={8} className="text-center text-navy-400 py-12">
                     取引先が登録されていません
                   </td>
                 </tr>
@@ -296,6 +339,76 @@ export default function CompaniesPage() {
             <div className="flex justify-end pt-4 mt-4 border-t border-navy-100">
               <button onClick={() => setInviteCompany(null)} className="btn">
                 閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 削除確認モーダル */}
+      {deleteTarget && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && !deleting && setDeleteTarget(null)}
+        >
+          <div className="modal animate-fade-in" style={{ maxWidth: "420px" }}>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="modal-bar bg-red-500" />
+              <h2 className="text-[15px] font-medium text-navy-900 flex-1">
+                取引先を削除
+              </h2>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="btn btn-icon text-navy-400 border-transparent"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[13px] font-medium text-red-800 mb-1">
+                    この操作は取り消せません
+                  </p>
+                  <p className="text-[12px] text-red-600 leading-relaxed">
+                    取引先に紐づく請求書・被請求書・ユーザー・連携情報もすべて削除されます。
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-navy-50 rounded-lg px-4 py-3">
+                <p className="text-[11px] text-navy-400 mb-1">削除対象</p>
+                <p className="text-[14px] font-medium text-navy-900">{deleteTarget.name}</p>
+                <p className="text-[11px] text-navy-500 mt-1">
+                  請求書 {deleteTarget.invoiceCount}件 ／ 未収金額 {yen(deleteTarget.uncollectedTotal)}
+                </p>
+              </div>
+
+              {deleteError && (
+                <p className="text-[12px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {deleteError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-navy-100">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="btn"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="btn gap-1.5 bg-red-600 text-white border-red-600 hover:bg-red-700 disabled:opacity-60"
+              >
+                <Trash2 size={13} />
+                {deleting ? "削除中..." : "削除する"}
               </button>
             </div>
           </div>

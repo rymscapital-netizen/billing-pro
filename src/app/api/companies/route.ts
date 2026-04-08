@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     }
 
     // ADMINロール: 自社が登録した会社のみ（createdByCompanyId = 自社 OR ADMIN作成分）
-    const companies = await prisma.company.findMany({
+    const companies: any[] = await (prisma.company.findMany as any)({
       where: {
         type: "CLIENT",
         OR: [
@@ -56,6 +56,24 @@ export async function GET(req: NextRequest) {
       },
     })
 
+    // 連携ステータスを取得
+    const companyIds = companies.map(c => c.id)
+    const links = companyIds.length > 0
+      ? await (prisma as any).companyLink.findMany({
+          where: {
+            status: "APPROVED",
+            OR: [
+              { companyAId: u.companyId, companyBId: { in: companyIds } },
+              { companyBId: u.companyId, companyAId: { in: companyIds } },
+            ],
+          },
+          select: { companyAId: true, companyBId: true },
+        })
+      : []
+    const connectedIds = new Set<string>(
+      links.map((l: any) => l.companyAId === u.companyId ? l.companyBId : l.companyAId)
+    )
+
     return NextResponse.json(companies.map(c => ({
       id:               c.id,
       name:             c.name,
@@ -63,6 +81,7 @@ export async function GET(req: NextRequest) {
       createdAt:        c.createdAt,
       invoiceCount:     c._count.invoices,
       uncollectedTotal: c.invoices.reduce((s, i) => s + Number(i.amount), 0),
+      connected:        connectedIds.has(c.id),
     })))
   } catch (e) {
     console.error("[companies GET]", e)
