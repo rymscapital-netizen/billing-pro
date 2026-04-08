@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -51,6 +51,7 @@ export default function NewInvoicePage() {
   const [ocrError,   setOcrError]     = useState("")
   const [ocrFields,  setOcrFields]    = useState<Set<string>>(new Set())
   const [ocrDragging, setOcrDragging] = useState(false)
+  const ocrInputRef = useRef<HTMLInputElement>(null)
 
   // 被請求書インライン作成
   const [showNewRcv, setShowNewRcv]         = useState(false)
@@ -119,6 +120,7 @@ export default function NewInvoicePage() {
   const totalRcvTax = totalRcvInc - totalRcvEx
 
   const handleOcrFile = async (file: File) => {
+    console.log("[OCR] file received:", file.name, file.type, file.size)
     setOcrLoading(true)
     setOcrError("")
     setOcrFields(new Set())
@@ -127,6 +129,7 @@ export default function NewInvoicePage() {
       fd.append("file", file)
       const res = await fetch("/api/ocr/upload", { method: "POST", body: fd })
       const data = await res.json()
+      console.log("[OCR] response:", res.status, data)
       if (!res.ok) throw new Error(data.error ?? "OCR処理に失敗しました")
 
       const e = data.extracted
@@ -399,9 +402,8 @@ export default function NewInvoicePage() {
             : "border-navy-200 bg-white hover:border-gold-400 hover:bg-gold-50"
         }`}
       >
-        {/* クリックでファイル選択（label を使わず button + input ref で制御） */}
         <input
-          id="ocr-file-input"
+          ref={ocrInputRef}
           type="file"
           accept=".pdf,.jpg,.jpeg,.png,.tiff"
           className="hidden"
@@ -410,7 +412,7 @@ export default function NewInvoicePage() {
         />
         <div
           className="flex flex-col items-center justify-center gap-2 py-6 cursor-pointer select-none"
-          onClick={() => !ocrLoading && document.getElementById("ocr-file-input")?.click()}
+          onClick={() => { if (!ocrLoading) ocrInputRef.current?.click() }}
         >
           {ocrLoading ? (
             <>
