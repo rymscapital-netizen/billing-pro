@@ -2,6 +2,9 @@ import { auth } from "@/lib/auth"
 import { DocumentAnalysisClient, AzureKeyCredential } from "@azure/ai-form-recognizer"
 import { NextRequest, NextResponse } from "next/server"
 
+// Vercel タイムアウトを60秒に延長（ホビープラン上限）
+export const maxDuration = 60
+
 function getClient() {
   const endpoint = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT
   const key      = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY
