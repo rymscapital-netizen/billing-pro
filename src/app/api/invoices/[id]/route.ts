@@ -1,6 +1,14 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+
+function getSb() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+}
 
 export async function GET(
   _req: NextRequest,
@@ -17,30 +25,34 @@ export async function GET(
     include: {
       company: true,
       payments: true,
-      profit: true,  // 後で権限チェックして除去
+      profit: true,
     },
   })
 
   if (!invoice) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  // アクセス制御: 発行者か受取先のみ閲覧可
+  // アクセス制御: 発行者か受取先のみ閲覧可（ADMIN も自社テナントのみ）
   const isIssuer    = (invoice as any).issuerCompanyId === u.companyId
   const isRecipient = invoice.companyId === u.companyId
-  if (u.role === "CLIENT" && !isIssuer && !isRecipient) {
+  if (!isIssuer && !isRecipient) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   // 利益情報は発行者のみ見える
-  if (u.role === "CLIENT" && !isIssuer) {
+  if (!isIssuer) {
     (invoice as any).profit = null
   }
 
-  // 紐づき被請求書を取得（ADMINのみ・raw SQL）
+  // 紐づき被請求書を取得（ADMINのみ・自社 ownerCompanyId に限定）
   let linkedReceivedInvoices: any[] = []
   if (u.role === "ADMIN") {
-    linkedReceivedInvoices = await prisma.$queryRawUnsafe(
-      `SELECT * FROM "ReceivedInvoice" WHERE "invoiceId" = '${id}' ORDER BY "dueDate" ASC`
-    )
+    const sb = getSb()
+    const { data } = await sb.from("ReceivedInvoice")
+      .select("*")
+      .eq("invoiceId", id)
+      .eq("ownerCompanyId", u.companyId)
+      .order("dueDate", { ascending: true })
+    linkedReceivedInvoices = data ?? []
   }
 
   return NextResponse.json({ ...invoice, linkedReceivedInvoices })
@@ -55,12 +67,13 @@ export async function PATCH(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const u = session.user as any
 
-  // 発行者のみ編集可
-  if (u.role === "CLIENT") {
-    const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
-    if (!inv || inv.issuerCompanyId !== u.companyId)
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
+  // 発行者のみ編集可（ADMIN・CLIENT 問わず）
+  const inv = await prisma.invoice.findUnique({
+    where: { id },
+    select: { issuerCompanyId: true, invoiceNumber: true },
+  }) as any
+  if (!inv || inv.issuerCompanyId !== u.companyId)
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const body = await req.json()
   const data: any = {}
@@ -82,6 +95,25 @@ export async function PATCH(
     include: { company: true, payments: true, profit: true },
   })
 
+  // 紐づいた ReceivedInvoice を同期（受取側の内容を最新に保つ）
+  const rcvUpdates: Record<string, any> = { updatedAt: new Date().toISOString() }
+  if (body.subject   !== undefined) rcvUpdates.subject   = body.subject
+  if (body.issueDate !== undefined) rcvUpdates.issueDate = new Date(body.issueDate).toISOString()
+  if (body.dueDate   !== undefined) rcvUpdates.dueDate   = new Date(body.dueDate).toISOString()
+  if (body.notes     !== undefined) rcvUpdates.notes     = body.notes || null
+  if (body.subtotal  !== undefined) rcvUpdates.amount    = body.subtotal + (body.tax ?? 0)
+
+  if (Object.keys(rcvUpdates).length > 1) {
+    try {
+      const sb = getSb()
+      await sb.from("ReceivedInvoice")
+        .update(rcvUpdates)
+        .eq("invoiceId", id)
+    } catch (e: any) {
+      console.error("[invoices PATCH] ReceivedInvoice sync failed:", e?.message)
+    }
+  }
+
   return NextResponse.json(updated)
 }
 
@@ -94,11 +126,17 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const u = session.user as any
 
-  // 発行者のみ削除可
-  if (u.role === "CLIENT") {
-    const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
-    if (!inv || inv.issuerCompanyId !== u.companyId)
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  // 発行者のみ削除可（ADMIN・CLIENT 問わず）
+  const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
+  if (!inv || inv.issuerCompanyId !== u.companyId)
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
+  // 紐づいた ReceivedInvoice を先に削除
+  try {
+    const sb = getSb()
+    await sb.from("ReceivedInvoice").delete().eq("invoiceId", id)
+  } catch (e: any) {
+    console.error("[invoices DELETE] ReceivedInvoice cleanup failed:", e?.message)
   }
 
   await prisma.invoicePayment.deleteMany({ where: { invoiceId: id } })

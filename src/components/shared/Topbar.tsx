@@ -1,7 +1,8 @@
 "use client"
 
 import { signOut } from "next-auth/react"
-import { LogOut } from "lucide-react"
+import { LogOut, Settings } from "lucide-react"
+import Link from "next/link"
 
 interface TopbarProps {
   title: string
@@ -10,6 +11,8 @@ interface TopbarProps {
 }
 
 export function Topbar({ title, role, userName }: TopbarProps) {
+  const settingsHref = role === "ADMIN" ? "/admin/settings" : "/client/settings"
+
   return (
     <header className="h-[52px] bg-white border-b border-navy-100 flex-shrink-0
                         flex items-center justify-between px-7">
@@ -24,7 +27,14 @@ export function Topbar({ title, role, userName }: TopbarProps) {
           {role === "ADMIN" ? "管理者" : "取引先"}
         </span>
 
-        <span className="text-[12px] text-navy-400">{userName}</span>
+        <Link
+          href={settingsHref}
+          className="flex items-center gap-1.5 text-[12px] text-navy-400 hover:text-navy-700 transition-colors"
+          title="アカウント設定"
+        >
+          <Settings size={13} />
+          <span>{userName}</span>
+        </Link>
 
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}

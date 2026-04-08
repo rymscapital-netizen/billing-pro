@@ -1,7 +1,14 @@
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
+import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
+
+function getSb() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+}
 
 const schema = z.object({
   paidAt: z.string(),
@@ -16,16 +23,22 @@ export async function POST(
   if (!session || (session.user as any).role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
+  const u = session.user as any
 
-  const body   = schema.parse(await req.json())
-  const paidAt = new Date(body.paidAt).toISOString()
+  const sb = getSb()
 
-  await prisma.$executeRawUnsafe(
-    `UPDATE "ReceivedInvoice" SET status = 'PAID', "paidAt" = '${paidAt}', "updatedAt" = NOW() WHERE id = '${id}'`
-  )
+  // テナント確認
+  const { data: target } = await sb.from("ReceivedInvoice")
+    .select("ownerCompanyId").eq("id", id).limit(1)
+  if (!target?.length) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  if (target[0].ownerCompanyId !== u.companyId)
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-  const rows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT * FROM "ReceivedInvoice" WHERE id = '${id}'`
-  )
-  return NextResponse.json(rows[0])
+  const body = schema.parse(await req.json())
+
+  const { data: updated } = await sb.from("ReceivedInvoice")
+    .update({ status: "PAID", paidAt: new Date(body.paidAt).toISOString(), updatedAt: new Date().toISOString() })
+    .eq("id", id).select().limit(1)
+
+  return NextResponse.json(updated?.[0])
 }

@@ -14,13 +14,16 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  // 請求書の存在確認
+  // 請求書の存在確認とテナント確認
   const invoice = await prisma.invoice.findUnique({
     where: { id },
-    select: { invoiceNumber: true },
-  })
+    select: { invoiceNumber: true, issuerCompanyId: true },
+  }) as any
   if (!invoice) {
     return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
+  }
+  if (invoice.issuerCompanyId !== (session.user as any).companyId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const formData = await req.formData()

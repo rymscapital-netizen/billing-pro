@@ -72,10 +72,13 @@ export function Sidebar({ role, userName, companyName }: SidebarProps) {
           )
         })}
       </nav>
-      <div className="px-5 py-4 border-t border-white/[0.07]">
-        <div className="text-white/60 text-[12px] font-medium truncate">{userName}</div>
-        <div className="text-white/30 text-[11px] mt-0.5 truncate">{companyName}</div>
-      </div>
+      <Link href={role === "ADMIN" ? "/admin/settings" : "/client/settings"}>
+        <div className="px-5 py-4 border-t border-white/[0.07] hover:bg-white/[0.05] transition-colors cursor-pointer">
+          <div className="text-white/60 text-[12px] font-medium truncate">{userName}</div>
+          <div className="text-white/30 text-[11px] mt-0.5 truncate">{companyName}</div>
+          <div className="text-white/25 text-[10px] mt-1 tracking-wide">アカウント設定 →</div>
+        </div>
+      </Link>
     </aside>
   )
 }

@@ -11,11 +11,10 @@ export async function POST(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const u = session.user as any
 
-  if (u.role === "CLIENT") {
-    const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
-    if (!inv || inv.issuerCompanyId !== u.companyId)
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
+  // 発行者のみ操作可（ADMIN・CLIENT 問わず）
+  const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
+  if (!inv || inv.issuerCompanyId !== u.companyId)
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const body = await req.json()
 

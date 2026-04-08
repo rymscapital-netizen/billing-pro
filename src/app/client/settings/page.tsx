@@ -1,9 +1,22 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { UserPlus, Eye, EyeOff } from "lucide-react"
+import { UserPlus, Eye, EyeOff, KeyRound, Save } from "lucide-react"
+import { useSession } from "next-auth/react"
 
 export default function ClientSettingsPage() {
+  const { data: session, update: updateSession } = useSession()
+
+  // アカウント設定
+  const [acctName,        setAcctName]        = useState("")
+  const [acctEmail,       setAcctEmail]       = useState("")
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword,     setNewPassword]     = useState("")
+  const [showCurrPass,    setShowCurrPass]    = useState(false)
+  const [showNewPass,     setShowNewPass]     = useState(false)
+  const [acctSaving,      setAcctSaving]      = useState(false)
+  const [acctMsg,         setAcctMsg]         = useState<{ ok: boolean; text: string } | null>(null)
+
   const [companyId, setCompanyId] = useState("")
   const [staffName,     setStaffName]     = useState("")
   const [staffEmail,    setStaffEmail]    = useState("")
@@ -13,6 +26,39 @@ export default function ClientSettingsPage() {
   const [added,         setAdded]         = useState(false)
   const [error,         setError]         = useState("")
   const [users,         setUsers]         = useState<any[]>([])
+
+  useEffect(() => {
+    if (session?.user) {
+      setAcctName((session.user as any).name ?? "")
+      setAcctEmail(session.user.email ?? "")
+    }
+  }, [session])
+
+  const handleSaveAccount = async () => {
+    setAcctSaving(true); setAcctMsg(null)
+    const body: any = {}
+    if (acctName  !== (session?.user as any)?.name)  body.name  = acctName
+    if (acctEmail !== session?.user?.email)           body.email = acctEmail
+    if (newPassword) {
+      body.currentPassword = currentPassword
+      body.newPassword     = newPassword
+    }
+    const res = await fetch("/api/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    const d = await res.json()
+    if (!res.ok) {
+      setAcctMsg({ ok: false, text: d.error ?? "保存に失敗しました" })
+    } else {
+      await updateSession({ name: acctName, email: acctEmail })
+      setCurrentPassword(""); setNewPassword("")
+      setAcctMsg({ ok: true, text: "保存しました" })
+      setTimeout(() => setAcctMsg(null), 3000)
+    }
+    setAcctSaving(false)
+  }
 
   useEffect(() => {
     // 自社情報を取得（companyId はセッションから）
@@ -46,6 +92,78 @@ export default function ClientSettingsPage() {
   return (
     <div className="space-y-6 animate-fade-in max-w-3xl">
       <h1 className="text-[18px] font-medium text-navy-900">設定</h1>
+
+      {/* アカウント設定 */}
+      <div className="bg-white rounded-lg border border-navy-100 p-6">
+        <div className="flex items-center gap-2 mb-5">
+          <KeyRound size={15} className="text-navy-400" />
+          <h2 className="text-[14px] font-medium text-navy-900">アカウント設定</h2>
+        </div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">氏名</label>
+              <input type="text" value={acctName} onChange={e => setAcctName(e.target.value)}
+                className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] focus:outline-none focus:border-navy-400" />
+            </div>
+            <div>
+              <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">メールアドレス（ログインID）</label>
+              <input type="email" value={acctEmail} onChange={e => setAcctEmail(e.target.value)}
+                className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] focus:outline-none focus:border-navy-400" />
+            </div>
+          </div>
+          <p className="text-[11px] text-navy-400">パスワードを変更する場合のみ入力してください</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">現在のパスワード</label>
+              <div className="relative">
+                <input
+                  type={showCurrPass ? "text" : "password"}
+                  value={currentPassword}
+                  onChange={e => setCurrentPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] focus:outline-none focus:border-navy-400 pr-9"
+                  placeholder="現在のパスワード"
+                />
+                <button type="button" onClick={() => setShowCurrPass(!showCurrPass)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600">
+                  {showCurrPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">新しいパスワード（6文字以上）</label>
+              <div className="relative">
+                <input
+                  type={showNewPass ? "text" : "password"}
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] focus:outline-none focus:border-navy-400 pr-9"
+                  placeholder="新しいパスワード"
+                />
+                <button type="button" onClick={() => setShowNewPass(!showNewPass)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600">
+                  {showNewPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {acctMsg && (
+          <p className={`text-[12px] mt-3 px-3 py-2 rounded-lg border ${acctMsg.ok ? "text-emerald-700 bg-emerald-50 border-emerald-200" : "text-red-600 bg-red-50 border-red-200"}`}>
+            {acctMsg.ok ? "✓ " : ""}{acctMsg.text}
+          </p>
+        )}
+        <div className="flex items-center gap-3 mt-5 pt-4 border-t border-navy-100">
+          <button
+            onClick={handleSaveAccount}
+            disabled={acctSaving}
+            className="flex items-center gap-1.5 px-4 py-2 bg-navy-800 text-white text-[13px] font-medium rounded-lg hover:bg-navy-700 disabled:opacity-60 transition-colors"
+          >
+            <Save size={13} />
+            {acctSaving ? "保存中..." : "変更を保存"}
+          </button>
+        </div>
+      </div>
 
       {/* 自社スタッフ登録 */}
       <div className="bg-white rounded-lg border border-navy-100 p-6">

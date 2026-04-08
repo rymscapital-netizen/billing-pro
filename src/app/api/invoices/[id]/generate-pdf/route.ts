@@ -23,6 +23,9 @@ export async function POST(
   if (!invoice) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
+  if ((invoice as any).issuerCompanyId !== (session.user as any).companyId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
 
   // PDF生成データを組み立て
   const pdfData = {

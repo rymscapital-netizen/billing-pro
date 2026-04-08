@@ -18,6 +18,13 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
+  // テナント確認
+  const { data: invCheck } = await supabase.from("Invoice")
+    .select("issuerCompanyId").eq("id", id).limit(1)
+  if (!invCheck?.length) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  if (invCheck[0].issuerCompanyId !== (session.user as any).companyId)
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
   const formData = await req.formData()
   const files = formData.getAll("files") as File[]
   if (!files.length) {
