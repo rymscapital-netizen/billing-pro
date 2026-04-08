@@ -129,7 +129,7 @@ export default function NewInvoicePage() {
       fd.append("file", file)
       const res = await fetch("/api/ocr/upload", { method: "POST", body: fd })
       const data = await res.json()
-      console.log("[OCR] response:", res.status, data)
+      console.log("[OCR] response:", res.status, JSON.stringify(data.extracted, null, 2))
       if (!res.ok) throw new Error(data.error ?? "OCR処理に失敗しました")
 
       const e = data.extracted
