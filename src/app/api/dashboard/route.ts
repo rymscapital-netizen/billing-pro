@@ -10,7 +10,7 @@ function getSupabase() {
   )
 }
 
-// 自社が受け取った請求書（経費）= ownerCompanyId でフィルタ（issueDate 基準）
+// 自社が受け取った請求書（経費）= ownerCompanyId でフィルタ（dueDate 基準）
 async function getMonthlyExpense(
   sb: ReturnType<typeof getSupabase>,
   start: Date, end: Date,
@@ -19,13 +19,13 @@ async function getMonthlyExpense(
   const { data, error } = await sb.from("ReceivedInvoice")
     .select("amount")
     .eq("ownerCompanyId", ownerCompanyId)
-    .gte("issueDate", start.toISOString())
-    .lte("issueDate", end.toISOString())
+    .gte("dueDate", start.toISOString())
+    .lte("dueDate", end.toISOString())
   if (error) throw new Error(`getMonthlyExpense: ${error.message}`)
   return (data ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0)
 }
 
-// 自社が発行した請求書（売上）= issuerCompanyId でフィルタ（issueDate 基準）
+// 自社が発行した請求書（売上）= issuerCompanyId でフィルタ（dueDate 基準）
 async function getMonthlyPL(
   sb: ReturnType<typeof getSupabase>,
   start: Date, end: Date,
@@ -34,8 +34,8 @@ async function getMonthlyPL(
 ) {
   let q = sb.from("Invoice")
     .select("amount, subtotal, status, InvoiceProfit(cost, grossProfit)")
-    .gte("issueDate", start.toISOString())
-    .lte("issueDate", end.toISOString())
+    .gte("dueDate", start.toISOString())
+    .lte("dueDate", end.toISOString())
     .neq("status", "DRAFT")
     .eq("issuerCompanyId", issuerCompanyId)
 
@@ -73,11 +73,11 @@ function calcPL(rows: any[]) {
   }
 }
 
-// 被請求書を期間でフィルタして集計
+// 被請求書を期間でフィルタして集計（dueDate 基準）
 function calcPayable(rows: any[], start?: Date, end?: Date) {
   const filtered = start && end
     ? rows.filter((r: any) => {
-        const d = new Date(r.issueDate)
+        const d = new Date(r.dueDate)
         return d >= start && d <= end
       })
     : rows
@@ -106,7 +106,7 @@ export async function GET(req: Request) {
     const u   = session.user as any
     const cid = u.companyId as string
 
-    // 12ヶ月トレンド（issueDate 基準）
+    // 12ヶ月トレンド（dueDate 基準）
     const startMonthParam = searchParams.get("startMonth")
     const trendStart = startMonthParam
       ? startOfMonth(new Date(
@@ -128,12 +128,12 @@ export async function GET(req: Request) {
       getMonthlyExpense(sb, prevStart, prevEnd, cid),
       getMonthlyExpense(sb, msStart,   msEnd,   cid),
       getMonthlyExpense(sb, nextStart, nextEnd, cid),
-      sb.from("Invoice").select("amount, issueDate")
+      sb.from("Invoice").select("amount, dueDate")
         .eq("issuerCompanyId", cid).neq("status", "DRAFT")
-        .gte("issueDate", trendStart.toISOString()).lte("issueDate", trendEnd.toISOString()),
-      sb.from("ReceivedInvoice").select("amount, issueDate")
+        .gte("dueDate", trendStart.toISOString()).lte("dueDate", trendEnd.toISOString()),
+      sb.from("ReceivedInvoice").select("amount, dueDate")
         .eq("ownerCompanyId", cid)
-        .gte("issueDate", trendStart.toISOString()).lte("issueDate", trendEnd.toISOString()),
+        .gte("dueDate", trendStart.toISOString()).lte("dueDate", trendEnd.toISOString()),
     ])
 
     const monthlyTrend = Array.from({ length: 12 }, (_, i) => {
@@ -143,11 +143,11 @@ export async function GET(req: Request) {
       const label = `${m.getFullYear()}/${String(m.getMonth() + 1).padStart(2, "0")}`
 
       const salesInc = ((trendInvResult as any).data ?? [])
-        .filter((r: any) => { const d = new Date(r.issueDate).getTime(); return d >= ms && d <= me })
+        .filter((r: any) => { const d = new Date(r.dueDate).getTime(); return d >= ms && d <= me })
         .reduce((s: number, r: any) => s + Number(r.amount), 0)
 
       const expenseTotal = ((trendRcvResult as any).data ?? [])
-        .filter((r: any) => { const d = new Date(r.issueDate).getTime(); return d >= ms && d <= me })
+        .filter((r: any) => { const d = new Date(r.dueDate).getTime(); return d >= ms && d <= me })
         .reduce((s: number, r: any) => s + Number(r.amount), 0)
 
       return { month: label, salesInc, expenseTotal, balance: salesInc - expenseTotal }
@@ -177,7 +177,7 @@ export async function GET(req: Request) {
         sb.from("InvoicePayment").select("*", { count: "exact", head: true })
           .eq("paymentStatus", "CONFIRMED").eq("clearStatus", "UNCLEARED"),
         unpaidQ,
-        sb.from("ReceivedInvoice").select("amount, status, issueDate")
+        sb.from("ReceivedInvoice").select("amount, status, dueDate")
           .eq("ownerCompanyId", cid),
       ])
       if (e1) throw new Error(`allUnpaid: ${e1.message}`)
@@ -238,7 +238,7 @@ export async function GET(req: Request) {
         .eq("issuerCompanyId", cid)
         .gte("issueDate", nextStart.toISOString()).lte("issueDate", nextEnd.toISOString())
         .neq("status", "DRAFT") as any),
-      sb.from("ReceivedInvoice").select("amount, status, issueDate")
+      sb.from("ReceivedInvoice").select("amount, status, dueDate")
         .eq("ownerCompanyId", cid),
     ])
     if (e1) throw new Error(`allUnpaid: ${e1.message}`)

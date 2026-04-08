@@ -250,7 +250,7 @@ export default function AdminDashboardPage() {
       {/* グラフ */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "32px", marginBottom: "10px" }}>
         <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
-          月次推移グラフ（12ヶ月・発行日基準）
+          月次推移グラフ（12ヶ月・支払期日基準）
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span style={{ fontSize: "11px", color: "#8a9ab8" }}>開始月</span>

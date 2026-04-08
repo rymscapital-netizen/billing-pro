@@ -192,7 +192,7 @@ export default function ClientDashboardPage() {
 
       {/* 売上サマリー */}
       <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: "32px", marginBottom: "10px" }}>
-        売上サマリー（今月・発行日基準）
+        売上サマリー（今月・支払期日基準）
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
         {salesCards.map((card) => (
@@ -206,7 +206,7 @@ export default function ClientDashboardPage() {
       {/* 被請求書サマリー（期間フィルター付き） */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "32px", marginBottom: "10px" }}>
         <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
-          被請求書サマリー（{payablePeriodLabel}・発行日基準）
+          被請求書サマリー（{payablePeriodLabel}・支払期日基準）
         </p>
         <div style={{ display: "flex", gap: "4px" }}>
           {PAYABLE_PERIOD_LABELS.map(({ key, label }) => (
@@ -238,7 +238,7 @@ export default function ClientDashboardPage() {
 
       {/* 月次 PL テーブル */}
       <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: "32px", marginBottom: "10px" }}>
-        月次 損益サマリー（発行日基準）
+        月次 損益サマリー（支払期日基準）
       </p>
       <div style={{ background: "#fff", borderRadius: "10px", border: "1px solid #e4eaf4", overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
@@ -295,7 +295,7 @@ export default function ClientDashboardPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "32px", marginBottom: "10px" }}>
         <div>
           <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
-            月次推移グラフ（12ヶ月・発行日基準）
+            月次推移グラフ（12ヶ月・支払期日基準）
           </p>
           <p style={{ fontSize: "10px", color: "#b0bdd4", marginTop: "3px" }}>
             売上はゼロより上・経費はゼロより下に表示
