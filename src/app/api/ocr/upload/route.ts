@@ -13,11 +13,18 @@ function getClient() {
 }
 
 // 日本語通貨文字列 → 数値（"100,000円" → 100000）
+// 複数行の場合は最初に数値が含まれる行だけ使う
 function parseCurrency(s: string | null | undefined): number | null {
   if (!s) return null
-  const cleaned = s.replace(/[円,\s￥¥、。]/g, "")
-  const num = parseFloat(cleaned)
-  return isNaN(num) ? null : num
+  // 行分割して数値らしい行を探す
+  const lines = s.split(/\n/)
+  for (const line of lines) {
+    const cleaned = line.replace(/[円,\s　￥¥、。]/g, "")
+    if (!cleaned) continue
+    const num = parseFloat(cleaned)
+    if (!isNaN(num) && num > 0) return num
+  }
+  return null
 }
 
 // YYYY-MM-DD / YYYY/MM/DD / YYYY年MM月DD日 → YYYY-MM-DD
@@ -98,15 +105,28 @@ export async function POST(req: NextRequest) {
     const totalRaw         = findKv(kvPairs, ["請求金額合計", "合計金額", "ご請求金額", "請求金額", "合計"])
 
     // フォールバック: 全文からregexで抽出
-    const invoiceNumber = invoiceNumberRaw
-      ?? fullText.match(/INV[-\s]?\d+/)?.[0]
+    // 請求書番号: 複数行の場合はINV-XXXXXXの行を優先、次に数字のみの行
+    function extractInvoiceNumber(raw: string | null): string | null {
+      if (!raw) return null
+      const lines = raw.split(/\n/).map(l => l.trim()).filter(Boolean)
+      // INV-XXXXXX パターン優先
+      const invLine = lines.find(l => /INV[-\s]?\d+/i.test(l))
+      if (invLine) return invLine.match(/INV[-\s]?\d+/i)?.[0] ?? invLine
+      // 数字・ハイフンのみの行（日付でないもの）
+      const numLine = lines.find(l => /^[\d\-\/]+$/.test(l) && !/^\d{4}[-\/]\d{2}[-\/]\d{2}$/.test(l))
+      if (numLine) return numLine
+      return lines[0] ?? null
+    }
+    const invoiceNumber = extractInvoiceNumber(invoiceNumberRaw)
+      ?? fullText.match(/INV[-\s]?\d+/i)?.[0]
       ?? null
 
     const issueDate = parseDate(issueDateRaw)
       ?? parseDate(fullText.match(/請求日[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
 
     const dueDate = parseDate(dueDateRaw)
-      ?? parseDate(fullText.match(/(?:入金期日|支払期限)[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
+      ?? parseDate(fullText.match(/(?:入金期日|支払期限|お支払期限)[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
+      ?? parseDate(fullText.match(/期限[：: 　]*(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2})/)?.[1])
 
     const subject = subjectRaw
       ?? fullText.match(/件名[：: 　]*([^\n]+)/)?.[1]?.trim()
