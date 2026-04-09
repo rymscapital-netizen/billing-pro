@@ -1,5 +1,5 @@
 /**
- * 一時的なバックフィル・診断エンドポイント
+ * 診断エンドポイント: UNPAID ReceivedInvoice が参照する Invoice のステータス確認
  * 実行後は削除してください
  */
 import { auth } from "@/lib/auth"
@@ -17,28 +17,33 @@ export async function POST() {
     process.env.SUPABASE_SERVICE_KEY!
   )
 
-  // 消込済み・入金確認済み Invoice を取得
+  // UNPAID の ReceivedInvoice を全件取得
+  const { data: rcvRows } = await sb
+    .from("ReceivedInvoice")
+    .select("id, invoiceId, amount, status")
+    .eq("status", "UNPAID")
+
+  // 参照先 Invoice のステータスを確認
+  const invoiceIds = (rcvRows ?? [])
+    .map((r: any) => r.invoiceId)
+    .filter(Boolean)
+
   const { data: invoices } = await sb
     .from("Invoice")
-    .select("id, companyId, amount, status")
-    .in("status", ["CLEARED", "PAYMENT_CONFIRMED"])
+    .select("id, status, amount")
+    .in("id", invoiceIds)
 
-  // UNPAID の ReceivedInvoice を全件取得（診断用）
-  const { data: rcvAll } = await sb
-    .from("ReceivedInvoice")
-    .select("id, invoiceId, ownerCompanyId, amount, status")
-    .eq("status", "UNPAID")
+  const statusMap = Object.fromEntries(
+    (invoices ?? []).map((inv: any) => [inv.id, { status: inv.status, amount: inv.amount }])
+  )
 
-  // invoiceId が null のみ
-  const { data: rcvUnlinked } = await sb
-    .from("ReceivedInvoice")
-    .select("id, invoiceId, ownerCompanyId, amount, status")
-    .eq("status", "UNPAID")
-    .is("invoiceId", null)
+  const result = (rcvRows ?? []).map((r: any) => ({
+    rcvId:       r.id,
+    rcvAmount:   r.amount,
+    invoiceId:   r.invoiceId,
+    invoiceStatus: statusMap[r.invoiceId]?.status ?? "NOT_FOUND",
+    invoiceAmount: statusMap[r.invoiceId]?.amount ?? null,
+  }))
 
-  return NextResponse.json({
-    clearedInvoices: invoices,
-    unpaidRcv_all: rcvAll,
-    unpaidRcv_unlinked: rcvUnlinked,
-  })
+  return NextResponse.json({ result })
 }
