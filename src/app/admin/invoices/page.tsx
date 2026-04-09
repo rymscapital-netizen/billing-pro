@@ -57,6 +57,8 @@ export default function AdminInvoicesPage() {
   const [payDate, setPayDate]     = useState(new Date().toISOString().slice(0, 10))
   const [payAmount, setPayAmount] = useState("")
   const [processing, setProcessing] = useState(false)
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+  const [taxMode, setTaxMode] = useState<"inc" | "ex">("ex")
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true)
@@ -80,36 +82,64 @@ export default function AdminInvoicesPage() {
 
   useEffect(() => { if (pageTab === "issued") fetchInvoices() }, [fetchInvoices, pageTab])
 
+  const showToast = (msg: string, ok = true) => {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3000)
+  }
+
   const handleConfirmPayment = async () => {
     if (!targetInv) return
     setProcessing(true)
-    await fetch(`/api/invoices/${targetInv.id}/confirm-payment`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paymentDate: payDate, paymentAmount: Number(payAmount) }),
-    })
-    setShowPayModal(false)
-    setProcessing(false)
-    fetchInvoices()
+    try {
+      const res = await fetch(`/api/invoices/${targetInv.id}/confirm-payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentDate: payDate, paymentAmount: Number(payAmount) }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        showToast(err.error ?? "着金確認に失敗しました", false)
+      } else {
+        showToast("着金確認しました")
+        fetchInvoices()
+      }
+    } catch {
+      showToast("通信エラーが発生しました", false)
+    } finally {
+      setShowPayModal(false)
+      setProcessing(false)
+    }
   }
 
   const handleClear = async () => {
     if (!targetInv) return
     setProcessing(true)
-    await fetch(`/api/invoices/${targetInv.id}/clear`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clearedAt: new Date().toISOString() }),
-    })
-    setShowClearModal(false)
-    setProcessing(false)
-    fetchInvoices()
+    try {
+      const res = await fetch(`/api/invoices/${targetInv.id}/clear`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clearedAt: new Date().toISOString() }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        showToast(err.error ?? "消込処理に失敗しました", false)
+      } else {
+        showToast("消込処理が完了しました")
+        fetchInvoices()
+      }
+    } catch {
+      showToast("通信エラーが発生しました", false)
+    } finally {
+      setShowClearModal(false)
+      setProcessing(false)
+    }
   }
 
   const handleDelete = async (inv: any) => {
     if (!confirm(`${inv.invoiceNumber} を削除しますか？`)) return
-    await fetch(`/api/invoices/${inv.id}`, { method: "DELETE" })
-    fetchInvoices()
+    const res = await fetch(`/api/invoices/${inv.id}`, { method: "DELETE" })
+    if (!res.ok) showToast("削除に失敗しました", false)
+    else fetchInvoices()
   }
 
   // ── 被請求書側 state ─────────────────────────────────────────────────────────
@@ -189,25 +219,44 @@ export default function AdminInvoicesPage() {
   const handleSendConfirm = async () => {
     if (!targetRcv) return
     setRcvProcessing(true)
-    await fetch(`/api/received-invoices/${targetRcv.id}/confirm-payment`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paidAt: sendDate }),
-    })
-    setShowSendModal(false)
-    setRcvProcessing(false)
-    fetchRcvInvoices()
+    try {
+      const res = await fetch(`/api/received-invoices/${targetRcv.id}/confirm-payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paidAt: sendDate }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        showToast(err.error ?? "送金確認に失敗しました", false)
+      } else {
+        showToast("送金確認しました")
+        fetchRcvInvoices()
+      }
+    } catch {
+      showToast("通信エラーが発生しました", false)
+    } finally {
+      setShowSendModal(false)
+      setRcvProcessing(false)
+    }
   }
 
   const handleRcvDelete = async (inv: any) => {
     if (!confirm(`${inv.vendorName} の被請求書を削除しますか？`)) return
-    await fetch(`/api/received-invoices/${inv.id}`, { method: "DELETE" })
-    fetchRcvInvoices()
+    const res = await fetch(`/api/received-invoices/${inv.id}`, { method: "DELETE" })
+    if (!res.ok) showToast("削除に失敗しました", false)
+    else fetchRcvInvoices()
   }
 
   return (
     <div className="space-y-4 animate-fade-in">
-
+      {/* トースト通知 */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-[13px] font-medium transition-all ${
+          toast.ok ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+        }`}>
+          {toast.msg}
+        </div>
+      )}
       {/* ページタブ */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1 bg-white border border-navy-100 rounded-lg p-1">
@@ -268,10 +317,51 @@ export default function AdminInvoicesPage() {
             </select>
           </div>
 
+          {/* 集計サマリーバー */}
+          {!loading && invoices.length > 0 && (() => {
+            const withProfit = invoices.filter((inv: any) => inv.profit)
+            const totalSales  = taxMode === "ex"
+              ? withProfit.reduce((s: number, inv: any) => s + Number(inv.subtotal ?? 0), 0)
+              : withProfit.reduce((s: number, inv: any) => s + Number(inv.amount ?? 0), 0)
+            const totalCost   = taxMode === "ex"
+              ? withProfit.reduce((s: number, inv: any) => s + Number(inv.profit.cost ?? 0), 0)
+              : withProfit.reduce((s: number, inv: any) => s + Math.round(Number(inv.profit.cost ?? 0) * 1.1), 0)
+            const totalProfit = totalSales - totalCost
+            const profitRate  = totalSales > 0 ? (totalProfit / totalSales * 100) : 0
+            return (
+              <div className="grid grid-cols-4 gap-3">
+                {[
+                  { label: `売上合計（${taxMode === "ex" ? "税別" : "税込"}）`, value: yen(totalSales), color: "text-navy-900" },
+                  { label: `原価合計（${taxMode === "ex" ? "税別" : "税込"}）`, value: yen(totalCost),  color: "text-navy-700" },
+                  { label: `利益合計（${taxMode === "ex" ? "税別" : "税込"}）`, value: yen(totalProfit), color: totalProfit >= 0 ? "text-emerald-700" : "text-red-600" },
+                  { label: "平均利益率", value: `${profitRate.toFixed(1)}%`, color: profitRate >= 30 ? "text-emerald-700" : "text-amber-700" },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="bg-white border border-navy-100 rounded-lg px-4 py-3">
+                    <p className="text-[10.5px] text-navy-400 mb-1">{label}</p>
+                    <p className={`text-[16px] font-bold tabular-nums ${color}`}>{value}</p>
+                    <p className="text-[9.5px] text-navy-300 mt-0.5">対象: {withProfit.length}件</p>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+
           <div className="bg-white rounded-lg border border-navy-100 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-navy-100">
               <h2 className="text-[13px] font-medium text-navy-900">請求書一覧</h2>
-              <span className="text-[11px] text-navy-400">{invoices.length}件</span>
+              <div className="flex items-center gap-3">
+                <div className="flex gap-0.5 bg-navy-50 border border-navy-100 rounded-md p-0.5">
+                  <button onClick={() => setTaxMode("ex")}
+                    className={`px-2.5 py-1 text-[11px] rounded transition-all font-medium ${taxMode === "ex" ? "bg-white text-navy-900 shadow-sm" : "text-navy-400 hover:text-navy-600"}`}>
+                    税別
+                  </button>
+                  <button onClick={() => setTaxMode("inc")}
+                    className={`px-2.5 py-1 text-[11px] rounded transition-all font-medium ${taxMode === "inc" ? "bg-white text-navy-900 shadow-sm" : "text-navy-400 hover:text-navy-600"}`}>
+                    税込
+                  </button>
+                </div>
+                <span className="text-[11px] text-navy-400">{invoices.length}件</span>
+              </div>
             </div>
             {loading ? (
               <div className="flex items-center justify-center py-16 text-navy-400 text-[13px]">読み込み中...</div>
@@ -279,26 +369,39 @@ export default function AdminInvoicesPage() {
               <table className="w-full border-collapse text-[12.5px]">
                 <thead>
                   <tr className="bg-navy-50">
-                    {["請求書番号","得意先","件名","請求日","支払期限","請求金額","粗利率","ステータス","操作"].map(h => (
+                    {["請求書番号","得意先","件名","請求日","支払期限",`請求金額（${taxMode === "ex" ? "税別" : "税込"}）`,"利益額","利益率","ステータス","操作"].map(h => (
                       <th key={h} className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.map((inv) => (
+                  {invoices.map((inv) => {
+                    const salesAmt  = taxMode === "ex" ? Number(inv.subtotal ?? 0) : Number(inv.amount ?? 0)
+                    const costAmt   = inv.profit
+                      ? (taxMode === "ex" ? Number(inv.profit.cost ?? 0) : Math.round(Number(inv.profit.cost ?? 0) * 1.1))
+                      : null
+                    const profitAmt = costAmt !== null ? salesAmt - costAmt : null
+                    return (
                     <tr key={inv.id} className="hover:bg-navy-50 border-b border-navy-100 last:border-0">
                       <td className="px-4 py-3 font-medium text-navy-900 font-mono text-[11.5px]">{inv.invoiceNumber}</td>
                       <td className="px-4 py-3 text-navy-700">{inv.company?.name}</td>
                       <td className="px-4 py-3 text-navy-600 max-w-[120px] truncate">{inv.subject}</td>
                       <td className="px-4 py-3 text-navy-400">{date(inv.issueDate)}</td>
                       <td className={`px-4 py-3 font-medium ${inv.status === "OVERDUE" ? "text-red-700" : "text-navy-400"}`}>{date(inv.dueDate)}</td>
-                      <td className="px-4 py-3 text-right font-medium text-navy-900 tabular-nums">{yen(inv.amount)}</td>
+                      <td className="px-4 py-3 text-right font-medium text-navy-900 tabular-nums">{yen(salesAmt)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {profitAmt !== null ? (
+                          <span className={`font-medium ${profitAmt >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                            {yen(profitAmt)}
+                          </span>
+                        ) : <span className="text-navy-300">—</span>}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         {inv.profit ? (
                           <span className={`font-medium ${Number(inv.profit.profitRate) >= 30 ? "text-emerald-700" : "text-amber-700"}`}>
                             {Number(inv.profit.profitRate).toFixed(1)}%
                           </span>
-                        ) : "—"}
+                        ) : <span className="text-navy-300">—</span>}
                       </td>
                       <td className="px-4 py-3"><StatusBadge status={inv.status} role="ADMIN" /></td>
                       <td className="px-4 py-3">
@@ -326,9 +429,9 @@ export default function AdminInvoicesPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  )})}
                   {invoices.length === 0 && (
-                    <tr><td colSpan={9} className="text-center text-navy-400 py-12 text-[13px]">
+                    <tr><td colSpan={10} className="text-center text-navy-400 py-12 text-[13px]">
                       請求書がありません。上の「新規請求書を作成」から登録してください。
                     </td></tr>
                   )}

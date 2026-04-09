@@ -18,8 +18,8 @@ export async function POST(
   try {
     const { id } = await params
     const session = await auth()
-    if (!session || (session.user as any).role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     const u = session.user as any
 

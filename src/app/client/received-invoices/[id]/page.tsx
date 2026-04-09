@@ -23,6 +23,7 @@ export default function ReceivedInvoiceDetailPage() {
   const [processing, setProcessing] = useState(false)
   const [sendDate, setSendDate]     = useState(new Date().toISOString().slice(0, 10))
   const [showPayModal, setShowPayModal] = useState(false)
+  const [toast, setToast]           = useState<{ msg: string; ok: boolean } | null>(null)
 
   const fetchInv = async () => {
     setLoading(true)
@@ -43,17 +44,33 @@ export default function ReceivedInvoiceDetailPage() {
 
   useEffect(() => { fetchInv() }, [id])
 
+  const showToast = (msg: string, ok = true) => {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3000)
+  }
+
   const handleConfirmPayment = async () => {
     if (!inv) return
     setProcessing(true)
-    await fetch(`/api/received-invoices/${id}/confirm-payment`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paidAt: sendDate }),
-    })
-    setShowPayModal(false)
-    setProcessing(false)
-    fetchInv()
+    try {
+      const res = await fetch(`/api/received-invoices/${id}/confirm-payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paidAt: sendDate }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        showToast(err.error ?? "送金確認に失敗しました", false)
+      } else {
+        showToast("送金確認しました")
+        fetchInv()
+      }
+    } catch {
+      showToast("通信エラーが発生しました", false)
+    } finally {
+      setShowPayModal(false)
+      setProcessing(false)
+    }
   }
 
   if (loading) {
@@ -70,6 +87,14 @@ export default function ReceivedInvoiceDetailPage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
+      {/* トースト通知 */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-[13px] font-medium transition-all ${
+          toast.ok ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+        }`}>
+          {toast.msg}
+        </div>
+      )}
       {/* ヘッダー */}
       <div className="flex items-center gap-3">
         <button
