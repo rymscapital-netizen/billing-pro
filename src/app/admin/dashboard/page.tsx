@@ -55,10 +55,27 @@ export default function AdminDashboardPage() {
       .catch(err => console.error("dashboard fetch error:", err))
   }, [filterUserId, startMonth])
 
-  const salesCards = [
-    { label: "今月売上総額", value: data ? yen(data.thisMonthDue)       : "…", color: "#c49828" },
-    { label: "今月入金済額", value: data ? yen(data.thisMonthPaid)      : "…", color: "#2e9e62" },
-    { label: "今月未回収額", value: data ? yen(data.thisMonthRemaining) : "…", color: "#c43030" },
+  const pl = data?.monthlyPL
+
+  const salesMonths = [
+    {
+      label: "先月",
+      salesInc: pl?.prev.salesInc    ?? 0,
+      salesEx:  pl?.prev.salesEx     ?? 0,
+      paid:     pl?.prev.paid        ?? 0,
+    },
+    {
+      label: "今月",
+      salesInc: pl?.current.salesInc ?? 0,
+      salesEx:  pl?.current.salesEx  ?? 0,
+      paid:     pl?.current.paid     ?? 0,
+    },
+    {
+      label: "来月",
+      salesInc: pl?.next.salesInc    ?? 0,
+      salesEx:  pl?.next.salesEx     ?? 0,
+      paid:     pl?.next.paid        ?? 0,
+    },
   ]
 
   const payableCards = [
@@ -66,8 +83,6 @@ export default function AdminDashboardPage() {
     { label: "支払済み合計",   value: data ? yen(data.payablePaid      ?? 0) : "…", color: "#2e9e62" },
     { label: "未払い残額",     value: data ? yen(data.payableRemaining ?? 0) : "…", color: "#c43030" },
   ]
-
-  const pl = data?.monthlyPL
 
   // PLテーブル: 項目ごとに 税込/税抜/消費税額 の3行を表示
   type PlSection = {
@@ -157,15 +172,42 @@ export default function AdminDashboardPage() {
 
       {/* 売上サマリー */}
       <p style={{ fontSize: "11px", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: "32px", marginBottom: "10px" }}>
-        売上サマリー（今月）
+        売上サマリー（支払期日基準）
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
-        {salesCards.map((card) => (
-          <div key={card.label} style={{ background: "#fff", borderRadius: "10px", border: "1px solid #e4eaf4", padding: "20px" }}>
-            <p style={{ fontSize: "11px", color: "#8a9ab8", marginBottom: "8px", textTransform: "uppercase" }}>{card.label}</p>
-            <p style={{ fontSize: "24px", fontWeight: "600", color: card.color }}>{card.value}</p>
-          </div>
-        ))}
+        {salesMonths.map((m) => {
+          const remaining = m.salesInc - m.paid
+          return (
+            <div key={m.label} style={{ background: "#fff", borderRadius: "10px", border: "1px solid #e4eaf4", padding: "20px" }}>
+              {/* 月ラベル */}
+              <p style={{ fontSize: "11px", fontWeight: "600", color: "#8a9ab8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "14px" }}>
+                {m.label}
+              </p>
+              {/* 売上総額（税込） */}
+              <div style={{ marginBottom: "10px" }}>
+                <p style={{ fontSize: "10px", color: "#b0bdd4", marginBottom: "2px" }}>売上総額（税込）</p>
+                <p style={{ fontSize: "20px", fontWeight: "600", color: "#c49828" }}>{data ? yen(m.salesInc) : "…"}</p>
+              </div>
+              {/* 売上総額（税抜） */}
+              <div style={{ marginBottom: "10px" }}>
+                <p style={{ fontSize: "10px", color: "#b0bdd4", marginBottom: "2px" }}>売上総額（税抜）</p>
+                <p style={{ fontSize: "14px", fontWeight: "500", color: "#0f1f3d" }}>{data ? yen(m.salesEx) : "…"}</p>
+              </div>
+              {/* 区切り線 */}
+              <div style={{ borderTop: "1px solid #f0f4fa", margin: "10px 0" }} />
+              {/* 入金済 */}
+              <div style={{ marginBottom: "8px" }}>
+                <p style={{ fontSize: "10px", color: "#b0bdd4", marginBottom: "2px" }}>入金済額</p>
+                <p style={{ fontSize: "14px", fontWeight: "500", color: "#2e9e62" }}>{data ? yen(m.paid) : "…"}</p>
+              </div>
+              {/* 未回収 */}
+              <div>
+                <p style={{ fontSize: "10px", color: "#b0bdd4", marginBottom: "2px" }}>未回収額</p>
+                <p style={{ fontSize: "14px", fontWeight: "500", color: remaining > 0 ? "#c43030" : "#2e9e62" }}>{data ? yen(remaining) : "…"}</p>
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {/* セットアップ完了 */}

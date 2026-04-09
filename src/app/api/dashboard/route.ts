@@ -292,5 +292,6 @@ function plShape(m: ReturnType<typeof calcPL>) {
     salesInc: m.salesInc, salesEx: m.salesEx, salesTax: m.salesTax,
     costInc:  m.costInc,  costEx:  m.costEx,  costTax:  m.costTax,
     profitInc: m.profitInc, profitEx: m.profitEx, profitTax: m.profitTax,
+    paid: m.paid,
   }
 }
