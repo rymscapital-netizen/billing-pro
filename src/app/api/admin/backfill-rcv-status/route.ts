@@ -1,7 +1,5 @@
 /**
- * 一時的なバックフィルエンドポイント
- * 消込済み・入金確認済み Invoice に対応する ReceivedInvoice を PAID に更新する
- * invoiceId 紐づけがない場合は companyId + amount でマッチング
+ * 一時的なバックフィル・診断エンドポイント
  * 実行後は削除してください
  */
 import { auth } from "@/lib/auth"
@@ -19,74 +17,28 @@ export async function POST() {
     process.env.SUPABASE_SERVICE_KEY!
   )
 
-  // ① invoiceId で紐づいているケース（既存ロジック）
-  const { data: linkedInvoices } = await sb
+  // 消込済み・入金確認済み Invoice を取得
+  const { data: invoices } = await sb
     .from("Invoice")
-    .select("id, companyId, amount, InvoicePayment(paymentDate, clearedAt)")
+    .select("id, companyId, amount, status")
     .in("status", ["CLEARED", "PAYMENT_CONFIRMED"])
 
-  let updatedByLink = 0
-  const linkedIds: string[] = []
+  // UNPAID の ReceivedInvoice を全件取得（診断用）
+  const { data: rcvAll } = await sb
+    .from("ReceivedInvoice")
+    .select("id, invoiceId, ownerCompanyId, amount, status")
+    .eq("status", "UNPAID")
 
-  for (const inv of linkedInvoices ?? []) {
-    const payment = Array.isArray(inv.InvoicePayment)
-      ? inv.InvoicePayment[0]
-      : inv.InvoicePayment
-    const paidAt = payment?.clearedAt ?? payment?.paymentDate ?? new Date().toISOString()
-
-    const { data: rows } = await sb
-      .from("ReceivedInvoice")
-      .update({
-        status:    "PAID",
-        paidAt:    new Date(paidAt).toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
-      .eq("invoiceId", inv.id)
-      .eq("status", "UNPAID")
-      .select("id")
-
-    if (rows?.length) {
-      updatedByLink += rows.length
-      linkedIds.push(...rows.map((r: any) => r.id))
-    }
-  }
-
-  // ② invoiceId 未設定のケース：ownerCompanyId（= Invoice.companyId）+ amount で一致
-  let updatedByMatch = 0
-
-  for (const inv of linkedInvoices ?? []) {
-    const payment = Array.isArray(inv.InvoicePayment)
-      ? inv.InvoicePayment[0]
-      : inv.InvoicePayment
-    const paidAt = payment?.clearedAt ?? payment?.paymentDate ?? new Date().toISOString()
-
-    // ownerCompanyId が Invoice の受領先（companyId）と一致し、
-    // 金額が一致し、invoiceId が null（未紐づけ）の UNPAID レコードを更新
-    const { data: rows } = await sb
-      .from("ReceivedInvoice")
-      .update({
-        status:    "PAID",
-        paidAt:    new Date(paidAt).toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
-      .eq("ownerCompanyId", inv.companyId)
-      .eq("amount", inv.amount)
-      .eq("status", "UNPAID")
-      .is("invoiceId", null)
-      .select("id")
-
-    if (rows?.length) {
-      updatedByMatch += rows.length
-    }
-  }
-
-  const total = updatedByLink + updatedByMatch
+  // invoiceId が null のみ
+  const { data: rcvUnlinked } = await sb
+    .from("ReceivedInvoice")
+    .select("id, invoiceId, ownerCompanyId, amount, status")
+    .eq("status", "UNPAID")
+    .is("invoiceId", null)
 
   return NextResponse.json({
-    message:        `バックフィル完了: 合計 ${total} 件を PAID に更新しました`,
-    invoicesChecked: (linkedInvoices ?? []).length,
-    updatedByInvoiceId: updatedByLink,
-    updatedByAmountMatch: updatedByMatch,
-    total,
+    clearedInvoices: invoices,
+    unpaidRcv_all: rcvAll,
+    unpaidRcv_unlinked: rcvUnlinked,
   })
 }
