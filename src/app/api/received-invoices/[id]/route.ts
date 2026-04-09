@@ -3,6 +3,37 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
+// GET: 単件取得（ADMIN・CLIENT 共通、ownerCompanyId でテナント確認）
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const session = await auth()
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const u = session.user as any
+
+  const sb = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+
+  const { data, error } = await sb.from("ReceivedInvoice")
+    .select("*, assignedUser:User!assignedUserId(id,name)")
+    .eq("id", id)
+    .eq("ownerCompanyId", u.companyId)
+    .limit(1)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data?.length) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+  const r = data[0]
+  return NextResponse.json({
+    ...r,
+    assignedUser: Array.isArray(r.assignedUser) ? (r.assignedUser[0] ?? null) : r.assignedUser,
+  })
+}
+
 function getSb() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

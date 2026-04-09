@@ -401,18 +401,10 @@ export default function ClientInvoicesPage() {
                               送金確認
                             </button>
                           )}
-                          <button onClick={async () => {
-                              setTargetRcv(inv)
-                              setLinkInvoiceId(inv.invoiceId ?? "")
-                              if (issuedInvoices.length === 0) {
-                                const r = await fetch("/api/invoices?view=issued&filter=all")
-                                if (r.ok) setIssuedInvoices(await r.json())
-                              }
-                              setShowRcvDetail(true)
-                            }}
+                          <Link href={`/client/received-invoices/${inv.id}`}
                             className="text-[11px] px-2.5 py-1.5 border border-navy-200 text-navy-600 rounded-md hover:bg-navy-50 transition-colors whitespace-nowrap">
                             詳細
-                          </button>
+                          </Link>
                           <button onClick={() => handleRcvDelete(inv)}
                             className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
                             <Trash2 size={13} />

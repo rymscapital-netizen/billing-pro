@@ -20,14 +20,13 @@ export async function POST(
 ) {
   const { id } = await params
   const session = await auth()
-  if (!session || (session.user as any).role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
+  // ADMIN・CLIENT 両方許可
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const u = session.user as any
 
   const sb = getSb()
 
-  // テナント確認
+  // ownerCompanyId でテナント確認（ロールに関わらず自社の被請求書のみ操作可）
   const { data: target } = await sb.from("ReceivedInvoice")
     .select("ownerCompanyId").eq("id", id).limit(1)
   if (!target?.length) return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -37,7 +36,11 @@ export async function POST(
   const body = schema.parse(await req.json())
 
   const { data: updated } = await sb.from("ReceivedInvoice")
-    .update({ status: "PAID", paidAt: new Date(body.paidAt).toISOString(), updatedAt: new Date().toISOString() })
+    .update({
+      status:    "PAID",
+      paidAt:    new Date(body.paidAt).toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
     .eq("id", id).select().limit(1)
 
   return NextResponse.json(updated?.[0])

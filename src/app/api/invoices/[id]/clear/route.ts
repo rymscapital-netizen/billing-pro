@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 
 export async function POST(
@@ -33,6 +34,20 @@ export async function POST(
       data: { status: "CLEARED" },
     }),
   ])
+
+  // 紐づく ReceivedInvoice を PAID に同期（被請求者のダッシュボードに反映させるため）
+  const sb = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+  await sb.from("ReceivedInvoice")
+    .update({
+      status:    "PAID",
+      paidAt:    new Date(body.clearedAt).toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .eq("invoiceId", id)
+    .eq("status", "UNPAID")
 
   return NextResponse.json({ payment, invoice })
 }
