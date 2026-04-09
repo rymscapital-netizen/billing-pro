@@ -24,7 +24,14 @@
       "Bash(pm2 --version)",
       "Bash(npm --version)",
       "Bash(npm install:*)",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/next/package.json'\\).version\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(npm uninstall:*)",
+      "Bash(node scripts/update-admin.mjs)",
+      "Bash(node -e \"require\\('pg'\\)\")",
+      "Bash(xargs grep:*)",
+      "Bash(npm list:*)"
     ]
   }
 }
