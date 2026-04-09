@@ -26,6 +26,7 @@ export async function GET(
       company: true,
       payments: true,
       profit: true,
+      assignedUser: { select: { id: true, name: true } },
     },
   })
 
@@ -78,11 +79,12 @@ export async function PATCH(
   const body = await req.json()
   const data: any = {}
 
-  if (body.subject   !== undefined) data.subject   = body.subject
-  if (body.issueDate !== undefined) data.issueDate = new Date(body.issueDate)
-  if (body.dueDate   !== undefined) data.dueDate   = new Date(body.dueDate)
-  if (body.notes     !== undefined) data.notes     = body.notes || null
-  if (body.subtotal  !== undefined) {
+  if (body.subject        !== undefined) data.subject        = body.subject
+  if (body.issueDate      !== undefined) data.issueDate      = new Date(body.issueDate)
+  if (body.dueDate        !== undefined) data.dueDate        = new Date(body.dueDate)
+  if (body.notes          !== undefined) data.notes          = body.notes || null
+  if (body.assignedUserId !== undefined) data.assignedUserId = body.assignedUserId || null
+  if (body.subtotal       !== undefined) {
     const tax    = body.tax ?? 0
     data.subtotal = body.subtotal
     data.tax      = tax
@@ -92,8 +94,21 @@ export async function PATCH(
   const updated = await prisma.invoice.update({
     where: { id },
     data,
-    include: { company: true, payments: true, profit: true },
+    include: { company: true, payments: true, profit: true, assignedUser: { select: { id: true, name: true } } },
   })
+
+  // 原価が指定された場合、InvoiceProfit を upsert
+  if (body.cost !== undefined) {
+    const sales = Number(updated.profit?.sales ?? updated.subtotal)
+    const cost  = Number(body.cost)
+    const grossProfit = sales - cost
+    const profitRate  = sales > 0 ? (grossProfit / sales) * 100 : 0
+    await (prisma.invoiceProfit.upsert as any)({
+      where:  { invoiceId: id },
+      create: { invoiceId: id, sales, cost, grossProfit, profitRate },
+      update: { cost, grossProfit, profitRate },
+    })
+  }
 
   // 紐づいた ReceivedInvoice を同期（受取側の内容を最新に保つ）
   const rcvUpdates: Record<string, any> = { updatedAt: new Date().toISOString() }

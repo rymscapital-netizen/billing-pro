@@ -24,18 +24,26 @@ export default function InvoiceDetailPage() {
   const [showClr, setShowClr]           = useState(false)
   const [uploading, setUploading]       = useState(false)
   const [rcvDetail, setRcvDetail]       = useState<any>(null)
+  const [allUsers, setAllUsers]         = useState<{ id: string; name: string }[]>([])
 
   // 編集モード
   const [isEditing, setIsEditing] = useState(false)
   const [saving, setSaving]       = useState(false)
   const [editForm, setEditForm]   = useState({
-    subject:   "",
-    issueDate: "",
-    dueDate:   "",
-    subtotal:  0,
-    taxRate:   10,
-    notes:     "",
+    subject:        "",
+    issueDate:      "",
+    dueDate:        "",
+    subtotal:       0,
+    taxRate:        10,
+    notes:          "",
+    cost:           0,
+    assignedUserId: "",
   })
+
+  useEffect(() => {
+    fetch("/api/users").then(r => r.ok ? r.json() : [])
+      .then((users: any[]) => setAllUsers(users.map((u: any) => ({ id: u.id, name: u.name }))))
+  }, [])
 
   const fetchInv = async () => {
     setLoading(true)
@@ -59,12 +67,14 @@ export default function InvoiceDetailPage() {
 
   const startEdit = () => {
     setEditForm({
-      subject:   inv.subject,
-      issueDate: isoDate(inv.issueDate),
-      dueDate:   isoDate(inv.dueDate),
-      subtotal:  Number(inv.subtotal),
-      taxRate:   inv.subtotal > 0 ? Math.round((Number(inv.tax) / Number(inv.subtotal)) * 100) : 10,
-      notes:     inv.notes ?? "",
+      subject:        inv.subject,
+      issueDate:      isoDate(inv.issueDate),
+      dueDate:        isoDate(inv.dueDate),
+      subtotal:       Number(inv.subtotal),
+      taxRate:        inv.subtotal > 0 ? Math.round((Number(inv.tax) / Number(inv.subtotal)) * 100) : 10,
+      notes:          inv.notes ?? "",
+      cost:           Number(inv.profit?.cost ?? 0),
+      assignedUserId: inv.assignedUser?.id ?? "",
     })
     setIsEditing(true)
   }
@@ -76,12 +86,14 @@ export default function InvoiceDetailPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        subject:   editForm.subject,
-        issueDate: editForm.issueDate,
-        dueDate:   editForm.dueDate,
-        subtotal:  editForm.subtotal,
+        subject:        editForm.subject,
+        issueDate:      editForm.issueDate,
+        dueDate:        editForm.dueDate,
+        subtotal:       editForm.subtotal,
         tax,
-        notes:     editForm.notes,
+        notes:          editForm.notes,
+        cost:           editForm.cost,
+        assignedUserId: editForm.assignedUserId,
       }),
     })
     setSaving(false)
@@ -205,6 +217,14 @@ export default function InvoiceDetailPage() {
                   <label className="form-label">請求先</label>
                   <div className="form-input bg-navy-50 text-navy-500 cursor-default">{inv.company.name}</div>
                 </div>
+                <div className="col-span-2">
+                  <label className="form-label">担当者</label>
+                  <select className="form-input" value={editForm.assignedUserId}
+                    onChange={e => setEditForm(f => ({ ...f, assignedUserId: e.target.value }))}>
+                    <option value="">未設定</option>
+                    {allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-[13px]">
@@ -213,6 +233,7 @@ export default function InvoiceDetailPage() {
                   ["請求日",   date(inv.issueDate)],
                   ["支払期限", date(inv.dueDate)],
                   ["請求先",   inv.company.name],
+                  ...(inv.assignedUser ? [["担当者", inv.assignedUser.name]] : []),
                 ].map(([label, value]) => (
                   <div key={label}>
                     <p className="text-[10.5px] text-navy-400 uppercase tracking-[0.05em] mb-0.5">{label}</p>
@@ -239,11 +260,14 @@ export default function InvoiceDetailPage() {
           {/* 金額 */}
           <div className="card p-5">
             <h2 className="text-[12px] font-medium text-navy-700 uppercase tracking-[0.06em] mb-4">金額</h2>
-            {isEditing ? (
+            {isEditing ? (() => {
+              const grossProfit = editForm.subtotal - editForm.cost
+              const profitRate  = editForm.subtotal > 0 ? (grossProfit / editForm.subtotal * 100) : 0
+              return (
               <div className="space-y-3 text-[13px]">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="form-label">小計</label>
+                    <label className="form-label">小計（税抜）</label>
                     <input type="number" className="form-input" value={editForm.subtotal}
                       onChange={e => setEditForm(f => ({ ...f, subtotal: Number(e.target.value) }))} />
                   </div>
@@ -265,8 +289,39 @@ export default function InvoiceDetailPage() {
                   <span className="text-navy-900">請求金額合計</span>
                   <span className="tabular text-navy-900">{yen(total)}</span>
                 </div>
+
+                {/* 原価・利益 */}
+                <div className="pt-3 border-t border-navy-100">
+                  <label className="form-label">仕入れ原価（税抜）</label>
+                  <input type="number" className="form-input" value={editForm.cost}
+                    onChange={e => setEditForm(f => ({ ...f, cost: Number(e.target.value) }))} />
+                  <p className="text-[10.5px] text-navy-400 mt-1">原価の消費税は自動で 10% として計算されます</p>
+                </div>
+                {editForm.cost > 0 && (
+                  <div className="grid grid-cols-3 gap-2 p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                    <div>
+                      <p className="text-[10px] text-navy-400 mb-0.5">粗利（税抜）</p>
+                      <p className={`text-[14px] font-bold tabular ${grossProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                        {yen(grossProfit)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-navy-400 mb-0.5">粗利率</p>
+                      <p className={`text-[14px] font-bold ${profitRate >= 30 ? "text-emerald-700" : "text-amber-700"}`}>
+                        {profitRate.toFixed(1)}%
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-navy-400 mb-0.5">原価（税込換算）</p>
+                      <p className="text-[14px] font-bold tabular text-navy-700">
+                        {yen(Math.round(editForm.cost * 1.1))}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
-            ) : (
+              )
+            })() : (
               <div className="space-y-2 text-[13px]">
                 <div className="flex justify-between text-navy-600">
                   <span>小計</span><span className="tabular">{yen(inv.subtotal)}</span>
