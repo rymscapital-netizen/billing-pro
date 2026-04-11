@@ -97,16 +97,20 @@ export async function PATCH(
     include: { company: true, payments: true, profit: true, assignedUser: { select: { id: true, name: true } } },
   })
 
-  // 原価が指定された場合、InvoiceProfit を upsert
-  if (body.cost !== undefined) {
-    const sales = Number(updated.profit?.sales ?? updated.subtotal)
-    const cost  = Number(body.cost)
+  // 売上・原価が指定された場合、InvoiceProfit を upsert
+  if (body.cost !== undefined || body.sales !== undefined) {
+    const sales = body.sales !== undefined
+      ? Number(body.sales)
+      : Number(updated.profit?.sales ?? updated.subtotal)
+    const cost  = body.cost !== undefined
+      ? Number(body.cost)
+      : Number(updated.profit?.cost ?? 0)
     const grossProfit = sales - cost
     const profitRate  = sales > 0 ? (grossProfit / sales) * 100 : 0
     await (prisma.invoiceProfit.upsert as any)({
       where:  { invoiceId: id },
       create: { invoiceId: id, sales, cost, grossProfit, profitRate },
-      update: { cost, grossProfit, profitRate },
+      update: { sales, cost, grossProfit, profitRate },
     })
   }
 
