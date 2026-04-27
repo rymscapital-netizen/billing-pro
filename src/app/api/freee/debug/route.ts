@@ -18,30 +18,27 @@ export async function GET(req: NextRequest) {
     }, { status: 401 })
   }
 
-  // freee会計 請求書API（従来）
-  const params1 = new URLSearchParams({ company_id: companyId, limit: "5", offset: "0" })
-  const res1 = await fetch(`https://api.freee.co.jp/api/1/invoices?${params1}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  const data1 = await res1.json()
+  const headers = { Authorization: `Bearer ${accessToken}` }
+  const tryFetch = async (url: string) => {
+    const r = await fetch(url, { headers })
+    const t = await r.text()
+    return { status: r.status, body: t.slice(0, 300) }
+  }
 
-  // freee請求書 API v2 (invoice.secure.freee.co.jp)
-  const params2 = new URLSearchParams({ limit: "5", offset: "0" })
-  const res2 = await fetch(`https://invoice.secure.freee.co.jp/api/v2/invoices?${params2}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  const data2 = await res2.text()
-
-  // freee請求書 API v1
-  const res3 = await fetch(`https://invoice.secure.freee.co.jp/api/v1/invoices?${params2}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  const data3 = await res3.text()
+  const results = await Promise.all([
+    tryFetch(`https://invoice.secure.freee.co.jp/api/v2/invoice_requests?limit=5`),
+    tryFetch(`https://invoice.secure.freee.co.jp/api/v2/companies/${companyId}/invoices?limit=5`),
+    tryFetch(`https://invoice.secure.freee.co.jp/api/v1/invoice_requests?limit=5`),
+    tryFetch(`https://api.freee.co.jp/invoice/v2/invoices?company_id=${companyId}&limit=5`),
+    tryFetch(`https://api.freee.co.jp/invoice/v1/invoices?company_id=${companyId}&limit=5`),
+  ])
 
   return NextResponse.json({
     companyId,
-    accounting_api: { status: res1.status, count: Array.isArray(data1.invoices) ? data1.invoices.length : 0 },
-    invoice_api_v2: { status: res2.status, body: data2.slice(0, 500) },
-    invoice_api_v1: { status: res3.status, body: data3.slice(0, 500) },
+    "invoice.secure/api/v2/invoice_requests": results[0],
+    "invoice.secure/api/v2/companies/{id}/invoices": results[1],
+    "invoice.secure/api/v1/invoice_requests": results[2],
+    "api.freee/invoice/v2/invoices": results[3],
+    "api.freee/invoice/v1/invoices": results[4],
   })
 }
