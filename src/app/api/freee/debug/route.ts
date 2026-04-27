@@ -18,25 +18,30 @@ export async function GET(req: NextRequest) {
     }, { status: 401 })
   }
 
-  // 会社情報確認
-  const companyRes = await fetch("https://api.freee.co.jp/api/1/companies", {
+  // freee会計 請求書API（従来）
+  const params1 = new URLSearchParams({ company_id: companyId, limit: "5", offset: "0" })
+  const res1 = await fetch(`https://api.freee.co.jp/api/1/invoices?${params1}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
-  const companyData = await companyRes.json()
+  const data1 = await res1.json()
 
-  // 請求書取得確認
-  const params = new URLSearchParams({ company_id: companyId, limit: "10", offset: "0" })
-  const invoiceRes = await fetch(`https://api.freee.co.jp/api/1/invoices?${params}`, {
+  // freee請求書 API v2 (invoice.secure.freee.co.jp)
+  const params2 = new URLSearchParams({ limit: "5", offset: "0" })
+  const res2 = await fetch(`https://invoice.secure.freee.co.jp/api/v2/invoices?${params2}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
-  const invoiceData = await invoiceRes.json()
+  const data2 = await res2.text()
+
+  // freee請求書 API v1
+  const res3 = await fetch(`https://invoice.secure.freee.co.jp/api/v1/invoices?${params2}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  const data3 = await res3.text()
 
   return NextResponse.json({
     companyId,
-    companyStatus: companyRes.status,
-    companies: companyData,
-    invoiceStatus: invoiceRes.status,
-    invoiceCount: Array.isArray(invoiceData.invoices) ? invoiceData.invoices.length : "配列でない",
-    invoiceRaw: invoiceData,
+    accounting_api: { status: res1.status, count: Array.isArray(data1.invoices) ? data1.invoices.length : 0 },
+    invoice_api_v2: { status: res2.status, body: data2.slice(0, 500) },
+    invoice_api_v1: { status: res3.status, body: data3.slice(0, 500) },
   })
 }
