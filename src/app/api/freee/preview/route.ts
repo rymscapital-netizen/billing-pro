@@ -15,28 +15,30 @@ export async function GET(req: NextRequest) {
   }
 
   const params = new URLSearchParams({ company_id: companyId, limit: "100", offset: "0" })
-  const freeeRes = await fetch(`https://api.freee.co.jp/api/1/invoices?${params}`, {
+  const freeeRes = await fetch(`https://api.freee.co.jp/iv/invoices?${params}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
 
   if (!freeeRes.ok) {
-    return NextResponse.json({ error: "freee APIエラー" }, { status: 502 })
+    const err = await freeeRes.text()
+    return NextResponse.json({ error: "freee APIエラー", detail: err }, { status: 502 })
   }
 
-  const { invoices } = await freeeRes.json()
+  const body = await freeeRes.json()
+  const invoices = body.invoices ?? body
   if (!Array.isArray(invoices)) {
-    return NextResponse.json({ error: "データなし" }, { status: 502 })
+    return NextResponse.json({ error: "データなし", raw: body }, { status: 502 })
   }
 
   const result = invoices.map((fi: any) => ({
     freeeId:       String(fi.id),
     invoiceNumber: fi.invoice_number || `FREEE-${fi.id}`,
     partnerName:   fi.partner_name   || "不明",
-    title:         fi.title          || "（タイトルなし）",
-    invoiceDate:   fi.invoice_date   || null,
+    title:         fi.subject        || "（タイトルなし）",
+    invoiceDate:   fi.billing_date   || null,
     dueDate:       fi.due_date       || null,
     totalAmount:   fi.total_amount   ?? 0,
-    status:        fi.invoice_status ?? "draft",
+    status:        fi.payment_status ?? "unsettled",
   }))
 
   return NextResponse.json(result)
