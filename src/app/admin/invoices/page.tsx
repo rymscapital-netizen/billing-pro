@@ -162,8 +162,11 @@ export default function AdminInvoicesPage() {
         showToast(data.error ?? "freeeからの取得に失敗しました", false)
         setShowFreeeModal(false)
       } else {
-        setFreeePreview(data)
-        setSelectedFreeeIds(new Set(data.map((d: any) => d.freeeId)))
+        const sorted = [...data].sort((a: any, b: any) =>
+          (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? "")
+        )
+        setFreeePreview(sorted)
+        setSelectedFreeeIds(new Set())
       }
     } catch {
       showToast("通信エラーが発生しました", false)
