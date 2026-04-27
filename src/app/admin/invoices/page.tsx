@@ -41,6 +41,10 @@ export default function AdminInvoicesPage() {
   const searchParams = useSearchParams()
   const [freeeConnected, setFreeeConnected] = useState(false)
   const [freeeSync, setFreeeSync] = useState(false)
+  const [showFreeeModal, setShowFreeeModal] = useState(false)
+  const [freeePreview, setFreeePreview] = useState<any[]>([])
+  const [freeeLoading, setFreeeLoading] = useState(false)
+  const [selectedFreeeIds, setSelectedFreeeIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (searchParams.get("freee") === "connected") setFreeeConnected(true)
@@ -148,14 +152,42 @@ export default function AdminInvoicesPage() {
   }
 
   const handleFreeeSync = async () => {
+    setFreeeLoading(true)
+    setShowFreeeModal(true)
+    setSelectedFreeeIds(new Set())
+    try {
+      const res = await fetch("/api/freee/preview")
+      const data = await res.json()
+      if (!res.ok) {
+        showToast(data.error ?? "freeeからの取得に失敗しました", false)
+        setShowFreeeModal(false)
+      } else {
+        setFreeePreview(data)
+        setSelectedFreeeIds(new Set(data.map((d: any) => d.freeeId)))
+      }
+    } catch {
+      showToast("通信エラーが発生しました", false)
+      setShowFreeeModal(false)
+    } finally {
+      setFreeeLoading(false)
+    }
+  }
+
+  const handleFreeeImport = async () => {
+    if (selectedFreeeIds.size === 0) return
     setFreeeSync(true)
     try {
-      const res = await fetch("/api/freee/sync", { method: "POST" })
+      const res = await fetch("/api/freee/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selectedIds: Array.from(selectedFreeeIds) }),
+      })
       const data = await res.json()
       if (!res.ok) {
         showToast(data.error ?? "同期に失敗しました", false)
       } else {
-        showToast(`同期完了: ${data.created}件追加 / ${data.skipped}件スキップ`)
+        showToast(`取り込み完了: ${data.created}件追加 / ${data.skipped}件スキップ`)
+        setShowFreeeModal(false)
         fetchInvoices()
       }
     } catch {
@@ -163,6 +195,14 @@ export default function AdminInvoicesPage() {
     } finally {
       setFreeeSync(false)
     }
+  }
+
+  const toggleFreeeId = (id: string) => {
+    setSelectedFreeeIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
   }
 
   const handleDelete = async (inv: any) => {
@@ -1005,6 +1045,88 @@ export default function AdminInvoicesPage() {
               <button onClick={handleSendConfirm} disabled={rcvProcessing}
                 className="px-4 py-2 text-[13px] bg-blue-700 text-white rounded-lg font-medium hover:bg-blue-600 disabled:opacity-60">
                 {rcvProcessing ? "処理中..." : "送金済みにする"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── freee 請求書選択モーダル ─────────────────────────────────────────── */}
+      {showFreeeModal && (
+        <div className="fixed inset-0 bg-navy-900/40 z-50 flex items-center justify-center"
+          onClick={e => e.target === e.currentTarget && !freeeSync && setShowFreeeModal(false)}>
+          <div className="bg-white rounded-xl border border-navy-200 shadow-xl w-[680px] max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-navy-100">
+              <h2 className="text-[15px] font-medium text-navy-900">freeeから請求書を取り込む</h2>
+              <button onClick={() => setShowFreeeModal(false)} disabled={freeeSync}
+                className="text-navy-400 hover:text-navy-700 text-[18px] leading-none disabled:opacity-40">×</button>
+            </div>
+
+            {freeeLoading ? (
+              <div className="flex items-center justify-center py-16 text-[13px] text-navy-400">
+                <RefreshCw size={16} className="animate-spin mr-2" />freeeから取得中...
+              </div>
+            ) : freeePreview.length === 0 ? (
+              <div className="flex items-center justify-center py-16 text-[13px] text-navy-400">
+                取り込める請求書がありません
+              </div>
+            ) : (
+              <>
+                <div className="px-6 py-2 border-b border-navy-100 flex items-center justify-between">
+                  <span className="text-[12px] text-navy-500">{freeePreview.length}件取得 / {selectedFreeeIds.size}件選択中</span>
+                  <div className="flex gap-3">
+                    <button onClick={() => setSelectedFreeeIds(new Set(freeePreview.map(d => d.freeeId)))}
+                      className="text-[12px] text-blue-600 hover:underline">すべて選択</button>
+                    <button onClick={() => setSelectedFreeeIds(new Set())}
+                      className="text-[12px] text-navy-400 hover:underline">すべて解除</button>
+                  </div>
+                </div>
+                <div className="overflow-y-auto flex-1">
+                  <table className="w-full text-[12px]">
+                    <thead className="sticky top-0 bg-navy-50">
+                      <tr className="text-left text-navy-400 uppercase text-[10px] tracking-wider">
+                        <th className="px-4 py-2 w-8"></th>
+                        <th className="px-4 py-2">請求書番号</th>
+                        <th className="px-4 py-2">取引先</th>
+                        <th className="px-4 py-2">件名</th>
+                        <th className="px-4 py-2">請求日</th>
+                        <th className="px-4 py-2 text-right">金額</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {freeePreview.map(fi => (
+                        <tr key={fi.freeeId}
+                          onClick={() => toggleFreeeId(fi.freeeId)}
+                          className={`border-t border-navy-50 cursor-pointer hover:bg-navy-50 transition-colors ${selectedFreeeIds.has(fi.freeeId) ? "bg-blue-50" : ""}`}>
+                          <td className="px-4 py-2.5">
+                            <input type="checkbox" readOnly
+                              checked={selectedFreeeIds.has(fi.freeeId)}
+                              className="accent-blue-600" />
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-navy-600">{fi.invoiceNumber}</td>
+                          <td className="px-4 py-2.5 text-navy-700">{fi.partnerName}</td>
+                          <td className="px-4 py-2.5 text-navy-700 max-w-[160px] truncate">{fi.title}</td>
+                          <td className="px-4 py-2.5 text-navy-500">{fi.invoiceDate ?? "—"}</td>
+                          <td className="px-4 py-2.5 text-right tabular-nums text-navy-800">
+                            ¥{Number(fi.totalAmount).toLocaleString("ja-JP")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-navy-100">
+              <button onClick={() => setShowFreeeModal(false)} disabled={freeeSync}
+                className="px-4 py-2 text-[13px] border border-navy-200 text-navy-600 rounded-lg hover:bg-navy-50 disabled:opacity-40">
+                キャンセル
+              </button>
+              <button onClick={handleFreeeImport} disabled={freeeSync || selectedFreeeIds.size === 0}
+                className="flex items-center gap-1.5 px-4 py-2 text-[13px] bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-500 disabled:opacity-40">
+                <RefreshCw size={13} className={freeeSync ? "animate-spin" : ""} />
+                {freeeSync ? "取り込み中..." : `選択した${selectedFreeeIds.size}件を取り込む`}
               </button>
             </div>
           </div>

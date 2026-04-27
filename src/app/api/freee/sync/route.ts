@@ -23,14 +23,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "freee未連携" }, { status: 401 })
   }
 
+  // 選択されたfreeeのIDリストを受け取る
+  const { selectedIds }: { selectedIds: string[] } = await req.json()
+  if (!Array.isArray(selectedIds) || selectedIds.length === 0) {
+    return NextResponse.json({ error: "取り込む請求書を選択してください" }, { status: 400 })
+  }
+
   const params = new URLSearchParams({ company_id: companyId, limit: "100", offset: "0" })
   const freeeRes = await fetch(`https://api.freee.co.jp/api/1/invoices?${params}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
 
   if (!freeeRes.ok) {
-    const err = await freeeRes.text()
-    return NextResponse.json({ error: "freee APIエラー", detail: err }, { status: 502 })
+    return NextResponse.json({ error: "freee APIエラー" }, { status: 502 })
   }
 
   const { invoices: freeeInvoices } = await freeeRes.json()
@@ -38,7 +43,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "データなし" }, { status: 502 })
   }
 
-  // 自社（ADMIN会社）を取得
+  // 選択されたものだけ対象にする
+  const targets = freeeInvoices.filter((fi: any) => selectedIds.includes(String(fi.id)))
+
   const adminCompany = await prisma.company.findFirst({ where: { type: "ADMIN" } })
   if (!adminCompany) {
     return NextResponse.json({ error: "自社情報が未登録" }, { status: 500 })
@@ -47,14 +54,12 @@ export async function POST(req: NextRequest) {
   let created = 0
   let skipped = 0
 
-  for (const fi of freeeInvoices) {
+  for (const fi of targets) {
     const invoiceNumber = fi.invoice_number || `FREEE-${fi.id}`
 
-    // 既存チェック
     const exists = await prisma.invoice.findUnique({ where: { invoiceNumber } })
     if (exists) { skipped++; continue }
 
-    // 取引先会社を取得 or 作成
     const partnerName: string = fi.partner_name || "不明"
     let company = await prisma.company.findFirst({ where: { name: partnerName } })
     if (!company) {
@@ -63,19 +68,19 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const subtotal  = fi.sub_total       ?? 0
-    const tax       = fi.tax_amount      ?? 0
-    const amount    = fi.total_amount    ?? subtotal + tax
+    const subtotal  = fi.sub_total    ?? 0
+    const tax       = fi.tax_amount   ?? 0
+    const amount    = fi.total_amount ?? subtotal + tax
     const status    = FREEE_STATUS_MAP[fi.invoice_status] ?? "DRAFT"
     const issueDate = fi.invoice_date ? new Date(fi.invoice_date) : new Date()
-    const dueDate   = fi.due_date       ? new Date(fi.due_date)   : new Date()
+    const dueDate   = fi.due_date     ? new Date(fi.due_date)     : new Date()
 
     await prisma.invoice.create({
       data: {
         invoiceNumber,
-        companyId:      company.id,
+        companyId:       company.id,
         issuerCompanyId: adminCompany.id,
-        subject:        fi.title || "（タイトルなし）",
+        subject:         fi.title || "（タイトルなし）",
         issueDate,
         dueDate,
         subtotal,
@@ -93,5 +98,5 @@ export async function POST(req: NextRequest) {
     created++
   }
 
-  return NextResponse.json({ ok: true, created, skipped, total: freeeInvoices.length })
+  return NextResponse.json({ ok: true, created, skipped, total: targets.length })
 }
