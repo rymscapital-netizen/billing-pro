@@ -66,11 +66,11 @@ export async function POST(req: NextRequest) {
     }
 
     const amount    = fi.total_amount ?? 0
-    const tax       = fi.tax_amount   ?? 0
+    const tax       = fi.amount_tax   ?? 0
     const subtotal  = amount - tax
     const status    = FREEE_STATUS_MAP[fi.payment_status] ?? "ISSUED"
-    const issueDate = fi.billing_date ? new Date(fi.billing_date) : new Date()
-    const dueDate   = fi.due_date     ? new Date(fi.due_date)     : new Date()
+    const issueDate = fi.billing_date  ? new Date(fi.billing_date)  : new Date()
+    const dueDate   = fi.payment_date  ? new Date(fi.payment_date)  : new Date()
 
     await prisma.invoice.create({
       data: {

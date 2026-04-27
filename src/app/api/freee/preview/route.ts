@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
     partnerName:   fi.partner_name   || "不明",
     title:         fi.subject        || "（タイトルなし）",
     invoiceDate:   fi.billing_date   || null,
-    dueDate:       fi.due_date       || null,
+    dueDate:       fi.payment_date   || null,
     totalAmount:   fi.total_amount   ?? 0,
     status:        fi.payment_status ?? "unsettled",
   }))
