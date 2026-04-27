@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useSearchParams } from "next/navigation"
 import { StatusBadge } from "@/components/shared/StatusBadge"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2, RefreshCw, Link2 } from "lucide-react"
 import Link from "next/link"
 import { FileDropZone } from "@/components/shared/FileDropZone"
 
@@ -35,6 +36,17 @@ type PageTab = "issued" | "received"
 
 export default function AdminInvoicesPage() {
   const [pageTab, setPageTab] = useState<PageTab>("issued")
+
+  // ── freee連携 ────────────────────────────────────────────────────────────────
+  const searchParams = useSearchParams()
+  const [freeeConnected, setFreeeConnected] = useState(false)
+  const [freeeSync, setFreeeSync] = useState(false)
+
+  useEffect(() => {
+    if (searchParams.get("freee") === "connected") setFreeeConnected(true)
+    if (searchParams.get("freee") === "error") showToast("freee連携に失敗しました", false)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── 共通：ユーザー一覧（担当者フィルター用）──────────────────────────────
   const [allUsers, setAllUsers] = useState<{ id: string; name: string }[]>([])
@@ -132,6 +144,24 @@ export default function AdminInvoicesPage() {
     } finally {
       setShowClearModal(false)
       setProcessing(false)
+    }
+  }
+
+  const handleFreeeSync = async () => {
+    setFreeeSync(true)
+    try {
+      const res = await fetch("/api/freee/sync", { method: "POST" })
+      const data = await res.json()
+      if (!res.ok) {
+        showToast(data.error ?? "同期に失敗しました", false)
+      } else {
+        showToast(`同期完了: ${data.created}件追加 / ${data.skipped}件スキップ`)
+        fetchInvoices()
+      }
+    } catch {
+      showToast("通信エラーが発生しました", false)
+    } finally {
+      setFreeeSync(false)
     }
   }
 
@@ -271,10 +301,24 @@ export default function AdminInvoicesPage() {
         </div>
 
         {pageTab === "issued" ? (
-          <Link href="/admin/invoices/new"
-            className="flex items-center gap-1.5 px-4 py-2 bg-navy-800 text-white text-[13px] font-medium rounded-lg hover:bg-navy-700 transition-colors">
-            <Plus size={14} />新規請求書を作成
-          </Link>
+          <div className="flex items-center gap-2">
+            {freeeConnected ? (
+              <button onClick={handleFreeeSync} disabled={freeeSync}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white text-[13px] font-medium rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-50">
+                <RefreshCw size={14} className={freeeSync ? "animate-spin" : ""} />
+                {freeeSync ? "同期中..." : "freeeから同期"}
+              </button>
+            ) : (
+              <a href="/api/freee/auth"
+                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-navy-200 text-navy-700 text-[13px] font-medium rounded-lg hover:bg-navy-50 transition-colors">
+                <Link2 size={14} />freeeと連携
+              </a>
+            )}
+            <Link href="/admin/invoices/new"
+              className="flex items-center gap-1.5 px-4 py-2 bg-navy-800 text-white text-[13px] font-medium rounded-lg hover:bg-navy-700 transition-colors">
+              <Plus size={14} />新規請求書を作成
+            </Link>
+          </div>
         ) : (
           <button onClick={() => setShowRcvModal(true)}
             className="flex items-center gap-1.5 px-4 py-2 bg-navy-800 text-white text-[13px] font-medium rounded-lg hover:bg-navy-700 transition-colors">
