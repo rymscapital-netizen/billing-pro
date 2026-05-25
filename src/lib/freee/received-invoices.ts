@@ -45,6 +45,47 @@ const receiptAmount = (receipt: any) => {
   return Number.isFinite(numeric) ? numeric : null
 }
 
+const dealPartnerName = (deal: any) =>
+  deal.partner_name ??
+  deal.partner?.name ??
+  deal.details?.[0]?.partner_name ??
+  null
+
+const dealTitle = (deal: any) =>
+  deal.ref_number ??
+  deal.details?.find((detail: any) => detail.description)?.description ??
+  null
+
+const fetchReceiptDealMap = async (
+  accessToken: string,
+  companyId: string,
+  startDate: string,
+  endDate: string
+) => {
+  const params = new URLSearchParams({
+    company_id: companyId,
+    type: "expense",
+    start_issue_date: startDate,
+    end_issue_date: endDate,
+    limit: "3000",
+    offset: "0",
+  })
+  const res = await fetch(`https://api.freee.co.jp/api/1/deals?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!res.ok) return new Map<string, any>()
+
+  const body = await res.json().catch(() => null)
+  const deals = body?.deals ?? []
+  const map = new Map<string, any>()
+  for (const deal of deals) {
+    for (const receiptId of deal.receipt_ids ?? []) {
+      map.set(String(receiptId), deal)
+    }
+  }
+  return map
+}
+
 const parseFreeeError = async (res: Response) => {
   const text = await res.text().catch(() => "")
   try {
@@ -63,7 +104,7 @@ const fetchReceiptBoxItems = async (accessToken: string, companyId: string) => {
     company_id: companyId,
     start_date: start.toISOString().slice(0, 10),
     end_date: end.toISOString().slice(0, 10),
-    category: "without_deal",
+    category: "all",
     limit: "100",
     offset: "0",
   })
@@ -76,6 +117,9 @@ const fetchReceiptBoxItems = async (accessToken: string, companyId: string) => {
   const receipts = body.receipts ?? body
   if (!Array.isArray(receipts)) throw new Error("ファイルボックスAPIのデータ形式が不正です")
 
+  const startDate = start.toISOString().slice(0, 10)
+  const endDate = end.toISOString().slice(0, 10)
+  const receiptDealMap = await fetchReceiptDealMap(accessToken, companyId, startDate, endDate)
   const detailedReceipts = await Promise.all(receipts.map(async (receipt: any) => {
     const detailParams = new URLSearchParams({ company_id: companyId })
     const detailRes = await fetch(`https://api.freee.co.jp/api/1/receipts/${receipt.id}?${detailParams}`, {
@@ -89,18 +133,19 @@ const fetchReceiptBoxItems = async (accessToken: string, companyId: string) => {
   return detailedReceipts.map((receipt: any): FreeeReceivedCandidate => {
     const freeeId = String(receipt.id)
     const metadata = receipt.receipt_metadatum ?? {}
-    const issueDate = metadata.issue_date ?? receipt.created_at?.slice(0, 10) ?? null
-    const amount = receiptAmount(receipt)
+    const linkedDeal = receiptDealMap.get(freeeId)
+    const issueDate = metadata.issue_date ?? linkedDeal?.issue_date ?? receipt.created_at?.slice(0, 10) ?? null
+    const amount = receiptAmount(receipt) ?? (linkedDeal ? Number(linkedDeal.amount ?? 0) : null)
     return {
       freeeId,
       sourceId: `receipt:${freeeId}`,
       sourceType: "receipt",
       invoiceNumber: metadata.invoice_number ?? null,
       displayNumber: receiptDisplayNumber(receipt),
-      partnerName: receiptPartnerName(receipt),
-      title: receiptTitle(receipt),
+      partnerName: dealPartnerName(linkedDeal) ?? receiptPartnerName(receipt),
+      title: dealTitle(linkedDeal) ?? receiptTitle(receipt),
       invoiceDate: issueDate,
-      dueDate: issueDate,
+      dueDate: linkedDeal?.due_date ?? issueDate,
       totalAmount: amount,
       status: "unpaid",
       notes: receipt.description ?? null,
