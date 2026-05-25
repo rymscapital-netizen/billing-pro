@@ -45,6 +45,7 @@ export default function AdminInvoicesPage() {
   const [freeePreview, setFreeePreview] = useState<any[]>([])
   const [freeeLoading, setFreeeLoading] = useState(false)
   const [selectedFreeeIds, setSelectedFreeeIds] = useState<Set<string>>(new Set())
+  const [freeeImportMode, setFreeeImportMode] = useState<PageTab>("issued")
 
   useEffect(() => {
     if (searchParams.get("freee") === "connected") setFreeeConnected(true)
@@ -151,12 +152,13 @@ export default function AdminInvoicesPage() {
     }
   }
 
-  const handleFreeeSync = async () => {
+  const handleFreeeSync = async (mode: PageTab = "issued") => {
+    setFreeeImportMode(mode)
     setFreeeLoading(true)
     setShowFreeeModal(true)
     setSelectedFreeeIds(new Set())
     try {
-      const res = await fetch("/api/freee/preview")
+      const res = await fetch(mode === "issued" ? "/api/freee/preview" : "/api/freee/received-preview")
       const data = await res.json()
       if (!res.ok) {
         showToast(data.error ?? "freeeからの取得に失敗しました", false)
@@ -180,7 +182,7 @@ export default function AdminInvoicesPage() {
     if (selectedFreeeIds.size === 0) return
     setFreeeSync(true)
     try {
-      const res = await fetch("/api/freee/sync", {
+      const res = await fetch(freeeImportMode === "issued" ? "/api/freee/sync" : "/api/freee/received-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ selectedIds: Array.from(selectedFreeeIds) }),
@@ -191,7 +193,8 @@ export default function AdminInvoicesPage() {
       } else {
         showToast(`取り込み完了: ${data.created}件追加 / ${data.skipped}件スキップ`)
         setShowFreeeModal(false)
-        fetchInvoices()
+        if (freeeImportMode === "issued") fetchInvoices()
+        else fetchRcvInvoices()
       }
     } catch {
       showToast("通信エラーが発生しました", false)
@@ -346,7 +349,7 @@ export default function AdminInvoicesPage() {
         {pageTab === "issued" ? (
           <div className="flex items-center gap-2">
             {freeeConnected ? (
-              <button onClick={handleFreeeSync} disabled={freeeSync}
+              <button onClick={() => handleFreeeSync("issued")} disabled={freeeSync}
                 className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white text-[13px] font-medium rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-50">
                 <RefreshCw size={14} className={freeeSync ? "animate-spin" : ""} />
                 {freeeSync ? "同期中..." : "freeeから同期"}
@@ -363,10 +366,24 @@ export default function AdminInvoicesPage() {
             </Link>
           </div>
         ) : (
-          <button onClick={() => setShowRcvModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-navy-800 text-white text-[13px] font-medium rounded-lg hover:bg-navy-700 transition-colors">
-            <Plus size={14} />被請求書を追加
-          </button>
+          <div className="flex items-center gap-2">
+            {freeeConnected ? (
+              <button onClick={() => handleFreeeSync("received")} disabled={freeeSync}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white text-[13px] font-medium rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-50">
+                <RefreshCw size={14} className={freeeSync ? "animate-spin" : ""} />
+                {freeeSync ? "同期中..." : "freeeから取込"}
+              </button>
+            ) : (
+              <a href="/api/freee/auth"
+                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-navy-200 text-navy-700 text-[13px] font-medium rounded-lg hover:bg-navy-50 transition-colors">
+                <Link2 size={14} />freeeと連携
+              </a>
+            )}
+            <button onClick={() => setShowRcvModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-navy-800 text-white text-[13px] font-medium rounded-lg hover:bg-navy-700 transition-colors">
+              <Plus size={14} />被請求書を追加
+            </button>
+          </div>
         )}
       </div>
 
@@ -470,7 +487,16 @@ export default function AdminInvoicesPage() {
                     const profitAmt = costAmt !== null ? salesAmt - costAmt : null
                     return (
                     <tr key={inv.id} className="hover:bg-navy-50 border-b border-navy-100 last:border-0">
-                      <td className="px-4 py-3 font-medium text-navy-900 font-mono text-[11.5px]">{inv.invoiceNumber}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-navy-900 font-mono text-[11.5px]">{inv.invoiceNumber}</span>
+                          {inv.source === "freee" && (
+                            <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                              freee
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-navy-700">{inv.company?.name}</td>
                       <td className="px-4 py-3 text-navy-600 max-w-[120px] truncate">{inv.subject}</td>
                       <td className="px-4 py-3 text-navy-400">{date(inv.issueDate)}</td>
@@ -585,7 +611,16 @@ export default function AdminInvoicesPage() {
               <tbody>
                 {rcvInvoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-navy-50 border-b border-navy-100 last:border-0">
-                    <td className="px-4 py-3 font-mono text-[11.5px] text-navy-500">{inv.invoiceNumber || "—"}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11.5px] text-navy-500">{inv.invoiceNumber || "—"}</span>
+                        {inv.source === "freee" && (
+                          <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                            freee
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 font-medium text-navy-900">{inv.vendorName}</td>
                     <td className="px-4 py-3 text-navy-600 max-w-[140px] truncate">{inv.subject}</td>
                     <td className="px-4 py-3 text-navy-400">{date(inv.issueDate)}</td>
@@ -1060,7 +1095,9 @@ export default function AdminInvoicesPage() {
           onClick={e => e.target === e.currentTarget && !freeeSync && setShowFreeeModal(false)}>
           <div className="bg-white rounded-xl border border-navy-200 shadow-xl w-[680px] max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-navy-100">
-              <h2 className="text-[15px] font-medium text-navy-900">freeeから請求書を取り込む</h2>
+              <h2 className="text-[15px] font-medium text-navy-900">
+                freeeから{freeeImportMode === "issued" ? "請求書" : "被請求書"}を取り込む
+              </h2>
               <button onClick={() => setShowFreeeModal(false)} disabled={freeeSync}
                 className="text-navy-400 hover:text-navy-700 text-[18px] leading-none disabled:opacity-40">×</button>
             </div>
@@ -1071,7 +1108,7 @@ export default function AdminInvoicesPage() {
               </div>
             ) : freeePreview.length === 0 ? (
               <div className="flex items-center justify-center py-16 text-[13px] text-navy-400">
-                取り込める請求書がありません
+                取り込める{freeeImportMode === "issued" ? "請求書" : "被請求書"}がありません
               </div>
             ) : (
               <>
@@ -1089,10 +1126,10 @@ export default function AdminInvoicesPage() {
                     <thead className="sticky top-0 bg-navy-50">
                       <tr className="text-left text-navy-400 uppercase text-[10px] tracking-wider">
                         <th className="px-4 py-2 w-8"></th>
-                        <th className="px-4 py-2">請求書番号</th>
+                        <th className="px-4 py-2">{freeeImportMode === "issued" ? "請求書番号" : "支払依頼番号"}</th>
                         <th className="px-4 py-2">取引先</th>
                         <th className="px-4 py-2">件名</th>
-                        <th className="px-4 py-2">請求日</th>
+                        <th className="px-4 py-2">{freeeImportMode === "issued" ? "請求日" : "発生日"}</th>
                         <th className="px-4 py-2 text-right">金額</th>
                       </tr>
                     </thead>

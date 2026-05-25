@@ -119,6 +119,8 @@ export async function POST(req: NextRequest) {
         tax,
         amount,
         status,
+        source: "freee",
+        sourceId: String(fi.id),
         createdAt: now,
         updatedAt: now,
       })

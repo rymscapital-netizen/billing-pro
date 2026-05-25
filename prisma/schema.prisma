@@ -74,6 +74,8 @@ model Invoice {
   status           InvoiceStatus @default(DRAFT)
   pdfUrl           String?
   notes            String?
+  source           String?
+  sourceId         String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
   company        Company          @relation("InvoiceRecipient", fields: [companyId], references: [id])
@@ -154,6 +156,8 @@ model ReceivedInvoice {
   invoiceId        String?
   assignedUserId   String?
   ownerCompanyId   String?
+  source           String?
+  sourceId         String?
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
   assignedUser User? @relation("ReceivedInvoiceAssignedUser", fields: [assignedUserId], references: [id])

@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "Invoice"
+ADD COLUMN IF NOT EXISTS "source" TEXT,
+ADD COLUMN IF NOT EXISTS "sourceId" TEXT;
+
+ALTER TABLE "ReceivedInvoice"
+ADD COLUMN IF NOT EXISTS "source" TEXT,
+ADD COLUMN IF NOT EXISTS "sourceId" TEXT;
