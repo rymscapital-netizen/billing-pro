@@ -165,7 +165,7 @@ export default function AdminInvoicesPage() {
       const res = await fetch(mode === "issued" ? "/api/freee/preview" : "/api/freee/received-preview")
       const data = await res.json()
       if (!res.ok) {
-        showToast(data.error ?? "freeeからの取得に失敗しました", false)
+        showToast(data.detail ?? data.error ?? "freeeからの取得に失敗しました", false)
         setShowFreeeModal(false)
       } else {
         const sorted = [...data].sort((a: any, b: any) =>

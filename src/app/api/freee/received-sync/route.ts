@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { createClient } from "@supabase/supabase-js"
+import { fetchFreeeReceivedCandidates } from "@/lib/freee/received-invoices"
 
 function getSb() {
   return createClient(
@@ -8,24 +9,6 @@ function getSb() {
     process.env.SUPABASE_SERVICE_KEY!
   )
 }
-
-const totalAmount = (request: any) => {
-  if (request.total_amount != null) return Number(request.total_amount)
-  if (request.amount != null) return Number(request.amount)
-  if (request.payment_request_lines) {
-    return request.payment_request_lines.reduce(
-      (sum: number, line: any) => sum + Number(line.amount ?? line.amount_with_tax ?? 0),
-      0
-    )
-  }
-  return 0
-}
-
-const partnerName = (request: any) =>
-  request.partner_name ??
-  request.partner?.name ??
-  request.payment_request_lines?.[0]?.partner_name ??
-  "不明"
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,34 +29,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "取り込む被請求書を選択してください" }, { status: 400 })
     }
 
-    const params = new URLSearchParams({ company_id: companyId, limit: "100", offset: "0" })
-    const freeeRes = await fetch(`https://api.freee.co.jp/api/1/payment_requests?${params}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-
-    if (!freeeRes.ok) {
-      const detail = await freeeRes.text().catch(() => "")
-      return NextResponse.json({ error: "freee支払依頼APIエラー", detail }, { status: 502 })
-    }
-
-    const body = await freeeRes.json()
-    const requests = body.payment_requests ?? body
-    if (!Array.isArray(requests)) {
-      return NextResponse.json({ error: "データ形式が不正です" }, { status: 502 })
-    }
-
-    const targets = requests.filter((request: any) => selectedIds.includes(String(request.id)))
+    const candidates = await fetchFreeeReceivedCandidates(accessToken, companyId)
+    const targets = candidates.filter((item) => selectedIds.includes(item.freeeId))
     const sb = getSb()
     const ownerCompanyId = (session.user as any).companyId
     let created = 0
     let skipped = 0
 
-    for (const request of targets) {
-      const sourceId = String(request.id)
+    for (const item of targets) {
       const { data: exists, error: existsError } = await sb.from("ReceivedInvoice")
         .select("id")
         .eq("source", "freee")
-        .eq("sourceId", sourceId)
+        .eq("sourceId", item.sourceId)
         .eq("ownerCompanyId", ownerCompanyId)
         .limit(1)
         .maybeSingle()
@@ -85,29 +52,24 @@ export async function POST(req: NextRequest) {
       }
 
       const now = new Date().toISOString()
-      const amount = totalAmount(request)
-      const issueDate = new Date(
-        request.issue_date ?? request.application_date ?? request.created_at ?? Date.now()
-      ).toISOString()
-      const dueDate = new Date(
-        request.payment_date ?? request.due_date ?? request.approval_deadline ?? Date.now()
-      ).toISOString()
-      const status = ["paid", "settled"].includes(String(request.status)) ? "PAID" : "UNPAID"
+      const issueDate = new Date(item.invoiceDate ?? Date.now()).toISOString()
+      const dueDate = new Date(item.dueDate ?? item.invoiceDate ?? Date.now()).toISOString()
+      const status = ["paid", "settled"].includes(String(item.status)) ? "PAID" : "UNPAID"
 
       const { error: createError } = await sb.from("ReceivedInvoice").insert({
         id: crypto.randomUUID(),
-        invoiceNumber: request.invoice_number ?? request.form_number ?? `FREEE-PR-${sourceId}`,
-        vendorName: partnerName(request),
-        subject: request.title ?? request.description ?? request.payment_request_lines?.[0]?.description ?? "支払依頼",
+        invoiceNumber: item.invoiceNumber,
+        vendorName: item.partnerName,
+        subject: item.title,
         issueDate,
         dueDate,
-        amount,
+        amount: item.totalAmount,
         status,
         paidAt: status === "PAID" ? dueDate : null,
         ownerCompanyId,
-        notes: request.memo ?? null,
+        notes: item.notes,
         source: "freee",
-        sourceId,
+        sourceId: item.sourceId,
         createdAt: now,
         updatedAt: now,
       })
