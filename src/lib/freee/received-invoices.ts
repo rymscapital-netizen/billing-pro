@@ -46,13 +46,13 @@ const receiptAmount = (receipt: any) => {
 }
 
 const dealPartnerName = (deal: any) =>
-  deal.partner_name ??
+  deal?.partner_name ??
   deal.partner?.name ??
   deal.details?.[0]?.partner_name ??
   null
 
 const dealTitle = (deal: any) =>
-  deal.ref_number ??
+  deal?.ref_number ??
   deal.details?.find((detail: any) => detail.description)?.description ??
   null
 
