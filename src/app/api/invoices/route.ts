@@ -81,6 +81,18 @@ export async function GET(req: NextRequest) {
     if (dateGte) q = q.gte("dueDate", dateGte)
     if (dateLte) q = q.lte("dueDate", dateLte)
     if (statusEq) q = q.eq("status", statusEq)
+    if (unclearedMode) {
+      const { data: unclearedPayments, error: paymentError } = await sb.from("InvoicePayment")
+        .select("invoiceId")
+        .eq("paymentStatus", "CONFIRMED")
+        .eq("clearStatus", "UNCLEARED")
+
+      if (paymentError) throw new Error(paymentError.message)
+
+      const invoiceIds = [...new Set((unclearedPayments ?? []).map((p: any) => p.invoiceId).filter(Boolean))]
+      if (invoiceIds.length === 0) return NextResponse.json([])
+      q = q.in("id", invoiceIds)
+    }
 
     const { data, error } = await q
     if (error) throw new Error(error.message)
@@ -92,12 +104,6 @@ export async function GET(req: NextRequest) {
       company:      Array.isArray(r.company)      ? (r.company[0]      ?? null) : r.company,
       assignedUser: Array.isArray(r.assignedUser) ? (r.assignedUser[0] ?? null) : r.assignedUser,
     }))
-
-    if (unclearedMode) {
-      rows = rows.filter((r: any) =>
-        r.payments.some((p: any) => p.paymentStatus === "CONFIRMED" && p.clearStatus === "UNCLEARED")
-      )
-    }
 
     return NextResponse.json(rows)
   } catch (e: any) {
