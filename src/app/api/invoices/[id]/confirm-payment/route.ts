@@ -1,13 +1,19 @@
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
 const schema = z.object({
-  paymentDate:   z.string(),
+  paymentDate: z.string(),
   paymentAmount: z.number().positive(),
 })
+
+function getSb() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+}
 
 export async function POST(
   req: NextRequest,
@@ -18,38 +24,46 @@ export async function POST(
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     const u = session.user as any
+    const sb = getSb()
 
-    // 発行者のみ操作可（ADMIN・CLIENT 問わず）
-    const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
-    if (!inv || inv.issuerCompanyId !== u.companyId)
+    const { data: inv, error: invError } = await sb.from("Invoice")
+      .select("id, issuerCompanyId")
+      .eq("id", id)
+      .limit(1)
+      .maybeSingle()
+
+    if (invError) throw new Error(invError.message)
+    if (!inv || inv.issuerCompanyId !== u.companyId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     const body = schema.parse(await req.json())
+    const paymentDate = new Date(body.paymentDate).toISOString()
 
-    const [payment, invoice] = await prisma.$transaction([
-      prisma.invoicePayment.update({
-        where: { invoiceId: id },
-        data: {
-          paymentStatus: "CONFIRMED",
-          paymentDate:   new Date(body.paymentDate),
-          paymentAmount: body.paymentAmount,
-        },
-      }),
-      prisma.invoice.update({
-        where: { id },
-        data: { status: "PAYMENT_CONFIRMED" },
-      }),
-    ])
+    const { data: payment, error: paymentError } = await sb.from("InvoicePayment")
+      .update({
+        paymentStatus: "CONFIRMED",
+        paymentDate,
+        paymentAmount: body.paymentAmount,
+      })
+      .eq("invoiceId", id)
+      .select()
+      .single()
 
-    // 入金確認時も紐づく ReceivedInvoice を PAID に同期
-    const sb = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_KEY!
-    )
+    if (paymentError) throw new Error(paymentError.message)
+
+    const { data: invoice, error: invoiceError } = await sb.from("Invoice")
+      .update({ status: "PAYMENT_CONFIRMED" })
+      .eq("id", id)
+      .select()
+      .single()
+
+    if (invoiceError) throw new Error(invoiceError.message)
+
     await sb.from("ReceivedInvoice")
       .update({
-        status:    "PAID",
-        paidAt:    new Date(body.paymentDate).toISOString(),
+        status: "PAID",
+        paidAt: paymentDate,
         updatedAt: new Date().toISOString(),
       })
       .eq("invoiceId", id)
@@ -58,6 +72,9 @@ export async function POST(
     return NextResponse.json({ payment, invoice })
   } catch (e: any) {
     console.error("[confirm-payment ERROR]", e?.message ?? e)
-    return NextResponse.json({ error: e?.message ?? "着金確認に失敗しました" }, { status: 500 })
+    return NextResponse.json(
+      { error: e?.message ?? "着金確認に失敗しました" },
+      { status: 500 }
+    )
   }
 }
