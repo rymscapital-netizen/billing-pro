@@ -2,12 +2,72 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { z } from "zod"
 
 function getSb() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_KEY!
   )
+}
+
+const updateSchema = z.object({
+  name: z.string().min(1).optional(),
+  bankName: z.string().nullable().optional(),
+  bankBranch: z.string().nullable().optional(),
+  bankAccountType: z.string().nullable().optional(),
+  bankAccountNumber: z.string().nullable().optional(),
+  bankAccountHolder: z.string().nullable().optional(),
+  bankAccountMemo: z.string().nullable().optional(),
+})
+
+const nullableText = (value: string | null | undefined) => {
+  if (value === undefined) return undefined
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const session = await auth()
+  if (!session || (session.user as any).role !== "ADMIN")
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
+  const u = session.user as any
+  const company = await (prisma.company.findUnique as any)({
+    where: { id },
+    select: { id: true, createdByCompanyId: true, type: true },
+  })
+  if (!company) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  if (company.type !== "CLIENT")
+    return NextResponse.json({ error: "自社情報はここでは編集できません" }, { status: 400 })
+  if (company.createdByCompanyId !== u.companyId && company.createdByCompanyId !== null)
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
+  const body = updateSchema.parse(await req.json())
+  const data: Record<string, string | null> = {}
+  if (body.name !== undefined) data.name = body.name.trim()
+  for (const key of [
+    "bankName",
+    "bankBranch",
+    "bankAccountType",
+    "bankAccountNumber",
+    "bankAccountHolder",
+    "bankAccountMemo",
+  ] as const) {
+    const value = nullableText(body[key])
+    if (value !== undefined) data[key] = value
+  }
+
+  const updated = await (prisma.company.update as any)({
+    where: { id },
+    data,
+  })
+
+  return NextResponse.json(updated)
 }
 
 export async function DELETE(

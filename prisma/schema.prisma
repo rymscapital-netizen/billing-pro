@@ -15,6 +15,12 @@ model Company {
   email               String?
   contactName         String?
   corporateNumber     String?
+  bankName            String?
+  bankBranch          String?
+  bankAccountType     String?
+  bankAccountNumber   String?
+  bankAccountHolder   String?
+  bankAccountMemo     String?
   type                CompanyType @default(CLIENT)
   isActive            Boolean     @default(true)
   createdByCompanyId  String?

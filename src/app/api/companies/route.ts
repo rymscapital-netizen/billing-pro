@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
       )
 
       // 自社が登録した会社 OR 連携済み会社
-      const companies = await prisma.company.findMany({
+      const companies = await (prisma.company.findMany as any)({
         where: {
           isActive: true,
           OR: [
@@ -32,7 +32,18 @@ export async function GET(req: NextRequest) {
           ],
         },
         orderBy: { name: "asc" },
-        select: { id: true, name: true, isActive: true, createdAt: true },
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+          createdAt: true,
+          bankName: true,
+          bankBranch: true,
+          bankAccountType: true,
+          bankAccountNumber: true,
+          bankAccountHolder: true,
+          bankAccountMemo: true,
+        },
       })
       return NextResponse.json(companies)
     }
@@ -79,6 +90,12 @@ export async function GET(req: NextRequest) {
       name:             c.name,
       isActive:         c.isActive,
       createdAt:        c.createdAt,
+      bankName:         c.bankName,
+      bankBranch:       c.bankBranch,
+      bankAccountType:  c.bankAccountType,
+      bankAccountNumber:c.bankAccountNumber,
+      bankAccountHolder:c.bankAccountHolder,
+      bankAccountMemo:  c.bankAccountMemo,
       invoiceCount:     c._count.invoices,
       uncollectedTotal: c.invoices.reduce((s, i) => s + Number(i.amount), 0),
       connected:        connectedIds.has(c.id),

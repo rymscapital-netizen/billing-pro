@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, X, Building2, Link, Copy, Check, Trash2, Link2, AlertTriangle } from "lucide-react"
+import { Plus, X, Building2, Link, Copy, Check, Trash2, Link2, AlertTriangle, Pencil, Landmark } from "lucide-react"
 
 interface Company {
   id: string
@@ -11,9 +11,35 @@ interface Company {
   uncollectedTotal: number
   createdAt: string
   connected: boolean
+  bankName?: string | null
+  bankBranch?: string | null
+  bankAccountType?: string | null
+  bankAccountNumber?: string | null
+  bankAccountHolder?: string | null
+  bankAccountMemo?: string | null
+}
+
+type EditForm = {
+  name: string
+  bankName: string
+  bankBranch: string
+  bankAccountType: string
+  bankAccountNumber: string
+  bankAccountHolder: string
+  bankAccountMemo: string
 }
 
 const yen = (n: number) => `¥${n.toLocaleString("ja-JP")}`
+
+const emptyEditForm: EditForm = {
+  name: "",
+  bankName: "",
+  bankBranch: "",
+  bankAccountType: "",
+  bankAccountNumber: "",
+  bankAccountHolder: "",
+  bankAccountMemo: "",
+}
 
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([])
@@ -33,6 +59,11 @@ export default function CompaniesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Company | null>(null)
   const [deleting, setDeleting]         = useState(false)
   const [deleteError, setDeleteError]   = useState("")
+
+  const [editTarget, setEditTarget] = useState<Company | null>(null)
+  const [editForm, setEditForm]     = useState<EditForm>(emptyEditForm)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError]   = useState("")
 
   const fetchCompanies = async () => {
     setLoading(true)
@@ -111,6 +142,42 @@ export default function CompaniesPage() {
     setDeleting(false)
   }
 
+  const openEdit = (company: Company) => {
+    setEditTarget(company)
+    setEditError("")
+    setEditForm({
+      name: company.name ?? "",
+      bankName: company.bankName ?? "",
+      bankBranch: company.bankBranch ?? "",
+      bankAccountType: company.bankAccountType ?? "",
+      bankAccountNumber: company.bankAccountNumber ?? "",
+      bankAccountHolder: company.bankAccountHolder ?? "",
+      bankAccountMemo: company.bankAccountMemo ?? "",
+    })
+  }
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editTarget || !editForm.name.trim()) return
+    setEditSaving(true)
+    setEditError("")
+    try {
+      const res = await fetch(`/api/companies/${editTarget.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "保存に失敗しました")
+      setCompanies(prev => prev.map(c => c.id === editTarget.id ? { ...c, ...data } : c))
+      setEditTarget(null)
+    } catch (e: any) {
+      setEditError(e.message)
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   return (
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -141,6 +208,7 @@ export default function CompaniesPage() {
                 <th>登録日</th>
                 <th>状態</th>
                 <th>取引先連携</th>
+                <th>支払先口座</th>
                 <th>招待</th>
                 <th></th>
               </tr>
@@ -186,6 +254,16 @@ export default function CompaniesPage() {
                     )}
                   </td>
                   <td>
+                    {c.bankName ? (
+                      <span className="flex items-center gap-1 text-[11px] font-medium text-blue-700">
+                        <Landmark size={11} />
+                        登録済み
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-navy-300">未登録</span>
+                    )}
+                  </td>
+                  <td>
                     <button
                       onClick={() => handleGenerateInvite(c)}
                       className="btn gap-1.5 text-[11px] py-1 px-2.5"
@@ -195,7 +273,14 @@ export default function CompaniesPage() {
                       招待URL
                     </button>
                   </td>
-                  <td>
+                  <td className="whitespace-nowrap">
+                    <button
+                      onClick={() => openEdit(c)}
+                      className="btn btn-icon text-navy-400 hover:text-navy-700 border-transparent"
+                      title="編集"
+                    >
+                      <Pencil size={13} />
+                    </button>
                     <button
                       onClick={() => { setDeleteTarget(c); setDeleteError("") }}
                       className="btn btn-icon text-navy-300 hover:text-red-500 border-transparent"
@@ -208,7 +293,7 @@ export default function CompaniesPage() {
               ))}
               {companies.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-center text-navy-400 py-12">
+                  <td colSpan={9} className="text-center text-navy-400 py-12">
                     取引先が登録されていません
                   </td>
                 </tr>
@@ -273,6 +358,139 @@ export default function CompaniesPage() {
                   className="btn btn-navy"
                 >
                   {saving ? "登録中..." : "登録する"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 取引先編集モーダル */}
+      {editTarget && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && !editSaving && setEditTarget(null)}
+        >
+          <div className="modal animate-fade-in" style={{ maxWidth: "640px" }}>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="modal-bar" />
+              <h2 className="text-[15px] font-medium text-navy-900 flex-1">
+                取引先を編集
+              </h2>
+              <button
+                onClick={() => setEditTarget(null)}
+                disabled={editSaving}
+                className="btn btn-icon text-navy-400 border-transparent"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-5">
+              <div>
+                <label className="form-label">会社名</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm(f => ({ ...f, name: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <div className="border-t border-navy-100 pt-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <Landmark size={14} className="text-navy-400" />
+                  <h3 className="text-[13px] font-medium text-navy-900">支払先口座</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="form-label">銀行名</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editForm.bankName}
+                      onChange={(e) => setEditForm(f => ({ ...f, bankName: e.target.value }))}
+                      placeholder="例：三菱UFJ銀行"
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">支店名</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editForm.bankBranch}
+                      onChange={(e) => setEditForm(f => ({ ...f, bankBranch: e.target.value }))}
+                      placeholder="例：渋谷支店"
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">口座種別</label>
+                    <select
+                      className="form-input"
+                      value={editForm.bankAccountType}
+                      onChange={(e) => setEditForm(f => ({ ...f, bankAccountType: e.target.value }))}
+                    >
+                      <option value="">未選択</option>
+                      <option value="普通">普通</option>
+                      <option value="当座">当座</option>
+                      <option value="貯蓄">貯蓄</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">口座番号</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className="form-input"
+                      value={editForm.bankAccountNumber}
+                      onChange={(e) => setEditForm(f => ({ ...f, bankAccountNumber: e.target.value }))}
+                      placeholder="例：1234567"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="form-label">口座名義</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editForm.bankAccountHolder}
+                      onChange={(e) => setEditForm(f => ({ ...f, bankAccountHolder: e.target.value }))}
+                      placeholder="例：カ）サンプル"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="form-label">メモ</label>
+                    <textarea
+                      className="form-input min-h-[76px] resize-none"
+                      value={editForm.bankAccountMemo}
+                      onChange={(e) => setEditForm(f => ({ ...f, bankAccountMemo: e.target.value }))}
+                      placeholder="振込時の注意事項など"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {editError && (
+                <p className="text-[12px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {editError}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-navy-100">
+                <button
+                  type="button"
+                  onClick={() => setEditTarget(null)}
+                  disabled={editSaving}
+                  className="btn"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSaving || !editForm.name.trim()}
+                  className="btn btn-navy"
+                >
+                  {editSaving ? "保存中..." : "保存する"}
                 </button>
               </div>
             </form>

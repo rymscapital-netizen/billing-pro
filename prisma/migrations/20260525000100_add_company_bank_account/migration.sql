@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "Company"
+ADD COLUMN IF NOT EXISTS "bankName" TEXT,
+ADD COLUMN IF NOT EXISTS "bankBranch" TEXT,
+ADD COLUMN IF NOT EXISTS "bankAccountType" TEXT,
+ADD COLUMN IF NOT EXISTS "bankAccountNumber" TEXT,
+ADD COLUMN IF NOT EXISTS "bankAccountHolder" TEXT,
+ADD COLUMN IF NOT EXISTS "bankAccountMemo" TEXT;
