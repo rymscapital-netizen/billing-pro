@@ -1,7 +1,13 @@
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+
+function getSb() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+}
 
 export async function POST(
   req: NextRequest,
@@ -12,39 +18,47 @@ export async function POST(
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     const u = session.user as any
+    const sb = getSb()
 
-    // 発行者のみ操作可（ADMIN・CLIENT 問わず）
-    const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
-    if (!inv || inv.issuerCompanyId !== u.companyId)
+    const { data: inv, error: invError } = await sb.from("Invoice")
+      .select("id, issuerCompanyId")
+      .eq("id", id)
+      .limit(1)
+      .maybeSingle()
+
+    if (invError) throw new Error(invError.message)
+    if (!inv || inv.issuerCompanyId !== u.companyId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     const body = await req.json()
+    const clearedAt = new Date(body.clearedAt).toISOString()
 
-    const [payment, invoice] = await prisma.$transaction([
-      prisma.invoicePayment.update({
-        where: { invoiceId: id },
-        data: {
-          clearStatus:     "CLEARED",
-          clearedAt:       new Date(body.clearedAt),
-          clearedByUserId: session.user.id,
-          notes:           body.notes,
-        },
-      }),
-      prisma.invoice.update({
-        where: { id },
-        data: { status: "CLEARED" },
-      }),
-    ])
+    const { data: payment, error: paymentError } = await sb.from("InvoicePayment")
+      .update({
+        clearStatus: "CLEARED",
+        clearedAt,
+        clearedByUserId: session.user.id,
+        notes: body.notes ?? null,
+      })
+      .eq("invoiceId", id)
+      .select()
+      .single()
 
-    // 紐づく ReceivedInvoice を PAID に同期（被請求者のダッシュボードに反映させるため）
-    const sb = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_KEY!
-    )
+    if (paymentError) throw new Error(paymentError.message)
+
+    const { data: invoice, error: invoiceError } = await sb.from("Invoice")
+      .update({ status: "CLEARED" })
+      .eq("id", id)
+      .select()
+      .single()
+
+    if (invoiceError) throw new Error(invoiceError.message)
+
     await sb.from("ReceivedInvoice")
       .update({
-        status:    "PAID",
-        paidAt:    new Date(body.clearedAt).toISOString(),
+        status: "PAID",
+        paidAt: clearedAt,
         updatedAt: new Date().toISOString(),
       })
       .eq("invoiceId", id)
@@ -53,6 +67,9 @@ export async function POST(
     return NextResponse.json({ payment, invoice })
   } catch (e: any) {
     console.error("[clear ERROR]", e?.message ?? e)
-    return NextResponse.json({ error: e?.message ?? "消込処理に失敗しました" }, { status: 500 })
+    return NextResponse.json(
+      { error: e?.message ?? "消込処理に失敗しました" },
+      { status: 500 }
+    )
   }
 }
