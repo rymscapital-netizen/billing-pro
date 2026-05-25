@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import { StatusBadge } from "@/components/shared/StatusBadge"
 import { Plus, Trash2, RefreshCw, Link2 } from "lucide-react"
@@ -33,6 +33,16 @@ const RCV_STATUS: Record<string, { label: string; color: string }> = {
 
 // ─── ページタブ ──────────────────────────────────────────────────────────────
 type PageTab = "issued" | "received"
+type DateSort = { field: "issueDate" | "dueDate"; direction: "asc" | "desc" }
+
+const sortByDate = (rows: any[], sort: DateSort) =>
+  [...rows].sort((a, b) => {
+    const av = new Date(a[sort.field]).getTime()
+    const bv = new Date(b[sort.field]).getTime()
+    const safeA = Number.isFinite(av) ? av : 0
+    const safeB = Number.isFinite(bv) ? bv : 0
+    return sort.direction === "asc" ? safeA - safeB : safeB - safeA
+  })
 
 export default function AdminInvoicesPage() {
   const [pageTab, setPageTab] = useState<PageTab>("issued")
@@ -80,6 +90,7 @@ export default function AdminInvoicesPage() {
   const [processing, setProcessing] = useState(false)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
   const [taxMode, setTaxMode] = useState<"inc" | "ex">("ex")
+  const [invoiceDateSort, setInvoiceDateSort] = useState<DateSort>({ field: "dueDate", direction: "desc" })
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true)
@@ -102,6 +113,8 @@ export default function AdminInvoicesPage() {
   }, [filter, yearMonth, filterUserId, filterCompanyId])
 
   useEffect(() => { if (pageTab === "issued") fetchInvoices() }, [fetchInvoices, pageTab])
+
+  const sortedInvoices = useMemo(() => sortByDate(invoices, invoiceDateSort), [invoices, invoiceDateSort])
 
   const showToast = (msg: string, ok = true) => {
     setToast({ msg, ok })
@@ -241,6 +254,7 @@ export default function AdminInvoicesPage() {
   const [rcvFilterUserId, setRcvFilterUserId] = useState("")
   const [rcvFilter, setRcvFilter]       = useState<Filter>("all")
   const [rcvYearMonth, setRcvYearMonth] = useState("")
+  const [rcvDateSort, setRcvDateSort] = useState<DateSort>({ field: "dueDate", direction: "desc" })
 
   const [rcvForm, setRcvForm] = useState({
     invoiceNumber:  "",
@@ -271,6 +285,25 @@ export default function AdminInvoicesPage() {
   }, [rcvFilterUserId, rcvFilter, rcvYearMonth])
 
   useEffect(() => { if (pageTab === "received") fetchRcvInvoices() }, [fetchRcvInvoices, pageTab])
+
+  const sortedRcvInvoices = useMemo(() => sortByDate(rcvInvoices, rcvDateSort), [rcvInvoices, rcvDateSort])
+
+  const toggleInvoiceDateSort = (field: DateSort["field"]) => {
+    setInvoiceDateSort(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === "desc" ? "asc" : "desc",
+    }))
+  }
+
+  const toggleRcvDateSort = (field: DateSort["field"]) => {
+    setRcvDateSort(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === "desc" ? "asc" : "desc",
+    }))
+  }
+
+  const sortMark = (sort: DateSort, field: DateSort["field"]) =>
+    sort.field === field ? (sort.direction === "desc" ? "↓" : "↑") : "↕"
 
   const handleRcvCreate = async () => {
     if (!rcvForm.vendorName || !rcvForm.subject || !rcvForm.amount) return
@@ -465,13 +498,32 @@ export default function AdminInvoicesPage() {
               <table className="w-full border-collapse text-[12.5px]">
                 <thead>
                   <tr className="bg-navy-50">
-                    {["請求書番号","得意先","件名","請求日","支払期限",`請求金額（${taxMode === "ex" ? "税別" : "税込"}）`,"利益額","利益率","ステータス","操作"].map(h => (
+                    <th className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">請求書番号</th>
+                    <th className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">得意先</th>
+                    <th className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">件名</th>
+                    <th className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">
+                      <button onClick={() => toggleInvoiceDateSort("issueDate")} className="inline-flex items-center gap-1 hover:text-navy-700">
+                        請求日 <span className="text-[10px]">{sortMark(invoiceDateSort, "issueDate")}</span>
+                      </button>
+                    </th>
+                    <th className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">
+                      <button onClick={() => toggleInvoiceDateSort("dueDate")} className="inline-flex items-center gap-1 hover:text-navy-700">
+                        支払期限 <span className="text-[10px]">{sortMark(invoiceDateSort, "dueDate")}</span>
+                      </button>
+                    </th>
+                    {[
+                      `請求金額（${taxMode === "ex" ? "税別" : "税込"}）`,
+                      "利益額",
+                      "利益率",
+                      "ステータス",
+                      "操作",
+                    ].map(h => (
                       <th key={h} className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.map((inv) => {
+                  {sortedInvoices.map((inv) => {
                     const salesAmt  = taxMode === "ex" ? Number(inv.subtotal ?? 0) : Number(inv.amount ?? 0)
                     const costAmt   = inv.profit
                       ? (taxMode === "ex" ? Number(inv.profit.cost ?? 0) : Math.round(Number(inv.profit.cost ?? 0) * 1.1))
@@ -595,13 +647,26 @@ export default function AdminInvoicesPage() {
             <table className="w-full border-collapse text-[12.5px]">
               <thead>
                 <tr className="bg-navy-50">
-                  {["請求書番号","取引先（請求元）","件名","請求日","支払期限","金額","ステータス","操作"].map(h => (
+                  <th className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">請求書番号</th>
+                  <th className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">取引先（請求元）</th>
+                  <th className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">件名</th>
+                  <th className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">
+                    <button onClick={() => toggleRcvDateSort("issueDate")} className="inline-flex items-center gap-1 hover:text-navy-700">
+                      請求日 <span className="text-[10px]">{sortMark(rcvDateSort, "issueDate")}</span>
+                    </button>
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">
+                    <button onClick={() => toggleRcvDateSort("dueDate")} className="inline-flex items-center gap-1 hover:text-navy-700">
+                      支払期限 <span className="text-[10px]">{sortMark(rcvDateSort, "dueDate")}</span>
+                    </button>
+                  </th>
+                  {["金額","ステータス","操作"].map(h => (
                     <th key={h} className="text-left px-4 py-2.5 text-[10.5px] text-navy-400 font-medium uppercase tracking-wider border-b border-navy-100">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {rcvInvoices.map((inv) => (
+                {sortedRcvInvoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-navy-50 border-b border-navy-100 last:border-0">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
