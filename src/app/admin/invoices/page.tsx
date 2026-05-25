@@ -90,7 +90,7 @@ export default function AdminInvoicesPage() {
   const [processing, setProcessing] = useState(false)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
   const [taxMode, setTaxMode] = useState<"inc" | "ex">("ex")
-  const [invoiceDateSort, setInvoiceDateSort] = useState<DateSort>({ field: "dueDate", direction: "desc" })
+  const [invoiceDateSort, setInvoiceDateSort] = useState<DateSort>({ field: "issueDate", direction: "desc" })
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true)
@@ -254,7 +254,7 @@ export default function AdminInvoicesPage() {
   const [rcvFilterUserId, setRcvFilterUserId] = useState("")
   const [rcvFilter, setRcvFilter]       = useState<Filter>("all")
   const [rcvYearMonth, setRcvYearMonth] = useState("")
-  const [rcvDateSort, setRcvDateSort] = useState<DateSort>({ field: "dueDate", direction: "desc" })
+  const [rcvDateSort, setRcvDateSort] = useState<DateSort>({ field: "issueDate", direction: "desc" })
 
   const [rcvForm, setRcvForm] = useState({
     invoiceNumber:  "",
