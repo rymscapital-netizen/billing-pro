@@ -1163,8 +1163,8 @@ export default function AdminInvoicesPage() {
                           </td>
                           <td className="px-4 py-2.5">
                             <div className="font-medium text-navy-700">{fi.displayNumber ?? fi.invoiceNumber}</div>
-                            {freeeImportMode === "received" && fi.sourceType === "deal" && (
-                              <div className="text-[10px] text-navy-300 font-mono mt-0.5">freee ID: {fi.freeeId}</div>
+                            {freeeImportMode === "received" && fi.sourceType === "receipt" && (
+                              <div className="text-[10px] text-navy-300 font-mono mt-0.5">ファイルNo: {fi.freeeId}</div>
                             )}
                           </td>
                           <td className="px-4 py-2.5 text-navy-700 max-w-[150px] truncate">{fi.partnerName}</td>
