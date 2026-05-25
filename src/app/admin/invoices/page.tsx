@@ -1144,7 +1144,7 @@ export default function AdminInvoicesPage() {
                     <thead className="sticky top-0 bg-navy-50">
                       <tr className="text-left text-navy-400 uppercase text-[10px] tracking-wider">
                         <th className="px-4 py-2 w-8"></th>
-                        <th className="px-4 py-2">{freeeImportMode === "issued" ? "請求書番号" : "支払依頼番号"}</th>
+                        <th className="px-4 py-2">{freeeImportMode === "issued" ? "請求書番号" : "取引日・番号"}</th>
                         <th className="px-4 py-2">取引先</th>
                         <th className="px-4 py-2">件名</th>
                         <th className="px-4 py-2">{freeeImportMode === "issued" ? "請求日" : "発生日"}</th>
@@ -1161,9 +1161,14 @@ export default function AdminInvoicesPage() {
                               checked={selectedFreeeIds.has(fi.freeeId)}
                               className="accent-blue-600" />
                           </td>
-                          <td className="px-4 py-2.5 font-mono text-navy-600">{fi.invoiceNumber}</td>
-                          <td className="px-4 py-2.5 text-navy-700">{fi.partnerName}</td>
-                          <td className="px-4 py-2.5 text-navy-700 max-w-[160px] truncate">{fi.title}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="font-medium text-navy-700">{fi.displayNumber ?? fi.invoiceNumber}</div>
+                            {freeeImportMode === "received" && fi.sourceType === "deal" && (
+                              <div className="text-[10px] text-navy-300 font-mono mt-0.5">freee ID: {fi.freeeId}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-navy-700 max-w-[150px] truncate">{fi.partnerName}</td>
+                          <td className="px-4 py-2.5 text-navy-700 max-w-[220px] truncate">{fi.title}</td>
                           <td className="px-4 py-2.5 text-navy-500">{fi.invoiceDate ?? "—"}</td>
                           <td className="px-4 py-2.5 text-right tabular-nums text-navy-800">
                             ¥{Number(fi.totalAmount).toLocaleString("ja-JP")}

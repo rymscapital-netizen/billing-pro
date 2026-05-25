@@ -3,6 +3,7 @@ export type FreeeReceivedCandidate = {
   sourceId: string
   sourceType: "payment_request" | "deal"
   invoiceNumber: string
+  displayNumber: string
   partnerName: string
   title: string
   invoiceDate: string | null
@@ -37,9 +38,16 @@ const dealPartnerName = (deal: any) =>
   "不明"
 
 const dealTitle = (deal: any) =>
-  deal.ref_number ??
+  deal.memo ??
+  deal.receipt_description ??
   deal.details?.find((detail: any) => detail.description)?.description ??
   "支出取引"
+
+const dealDisplayNumber = (deal: any) =>
+  deal.ref_number ??
+  deal.receipt_id ??
+  deal.issue_date ??
+  `freee取引 ${deal.id}`
 
 const parseFreeeError = async (res: Response) => {
   const text = await res.text().catch(() => "")
@@ -69,6 +77,7 @@ const fetchPaymentRequests = async (accessToken: string, companyId: string) => {
       sourceId: `payment_request:${freeeId}`,
       sourceType: "payment_request",
       invoiceNumber: request.invoice_number ?? request.form_number ?? `FREEE-PR-${freeeId}`,
+      displayNumber: request.invoice_number ?? request.form_number ?? `支払依頼 ${freeeId}`,
       partnerName: paymentRequestPartnerName(request),
       title: request.title ?? request.description ?? request.payment_request_lines?.[0]?.description ?? "支払依頼",
       invoiceDate: request.issue_date ?? request.application_date ?? request.created_at?.slice(0, 10) ?? null,
@@ -104,6 +113,7 @@ const fetchExpenseDeals = async (accessToken: string, companyId: string) => {
       sourceId: `deal:${freeeId}`,
       sourceType: "deal",
       invoiceNumber: deal.ref_number || `FREEE-DEAL-${freeeId}`,
+      displayNumber: dealDisplayNumber(deal),
       partnerName: dealPartnerName(deal),
       title: dealTitle(deal),
       invoiceDate: deal.issue_date ?? null,
