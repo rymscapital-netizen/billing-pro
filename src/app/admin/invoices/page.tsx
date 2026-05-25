@@ -1131,7 +1131,10 @@ export default function AdminInvoicesPage() {
             ) : (
               <>
                 <div className="px-6 py-2 border-b border-navy-100 flex items-center justify-between">
-                  <span className="text-[12px] text-navy-500">{freeePreview.length}件取得 / {selectedFreeeIds.size}件選択中</span>
+                  <span className="text-[12px] text-navy-500">
+                    {freeePreview.length}件取得 / {selectedFreeeIds.size}件選択中
+                    {freeeImportMode === "received" && "（ファイルボックス: 未登録）"}
+                  </span>
                   <div className="flex gap-3">
                     <button onClick={() => setSelectedFreeeIds(new Set(freeePreview.map(d => d.freeeId)))}
                       className="text-[12px] text-blue-600 hover:underline">すべて選択</button>

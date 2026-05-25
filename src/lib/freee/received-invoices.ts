@@ -10,6 +10,7 @@ export type FreeeReceivedCandidate = {
   dueDate: string | null
   totalAmount: number | null
   status: string
+  receiptStatus: string | null
   notes: string | null
   readStatus: "read" | "unread"
 }
@@ -104,7 +105,7 @@ const fetchReceiptBoxItems = async (accessToken: string, companyId: string) => {
     company_id: companyId,
     start_date: start.toISOString().slice(0, 10),
     end_date: end.toISOString().slice(0, 10),
-    category: "all",
+    category: "without_deal",
     limit: "100",
     offset: "0",
   })
@@ -148,6 +149,7 @@ const fetchReceiptBoxItems = async (accessToken: string, companyId: string) => {
       dueDate: linkedDeal?.due_date ?? issueDate,
       totalAmount: amount,
       status: "unpaid",
+      receiptStatus: receipt.status ?? null,
       notes: receipt.description ?? null,
       readStatus: amount == null ? "unread" : "read",
     }
