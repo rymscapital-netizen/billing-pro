@@ -29,6 +29,7 @@ export default function InvoiceDetailPage() {
   const [showPay, setShowPay]           = useState(false)
   const [showClr, setShowClr]           = useState(false)
   const [uploading, setUploading]       = useState(false)
+  const [uploadError, setUploadError]   = useState("")
   const [rcvDetail, setRcvDetail]       = useState<any>(null)
   const [allUsers, setAllUsers]         = useState<{ id: string; name: string }[]>([])
 
@@ -304,10 +305,14 @@ export default function InvoiceDetailPage() {
   const handleFileUpload = async (file: File) => {
     if (uploading) return
     setUploading(true)
+    setUploadError("")
     try {
       const fd = new FormData(); fd.append("file", file)
       const res = await fetch(`/api/invoices/${id}/upload-pdf`, { method: "POST", body: fd })
-      if (!res.ok) throw new Error("PDFアップロードに失敗しました")
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error ?? "PDFアップロードに失敗しました")
+      }
       const updated = await res.json()
       setInv((prev: any) => prev ? { ...prev, pdfUrl: updated.pdfUrl } : prev)
       const urlRes = await fetch(`/api/invoices/${id}/pdf-url`)
@@ -317,6 +322,7 @@ export default function InvoiceDetailPage() {
       }
     } catch (e) {
       console.error(e)
+      setUploadError(e instanceof Error ? e.message : "PDFアップロードに失敗しました")
     } finally {
       setUploading(false)
     }
@@ -919,9 +925,13 @@ export default function InvoiceDetailPage() {
                   <ExternalLink size={12} />ファイルを開く
                 </a>
                 <FileDropZone onFile={handleFileUpload} loading={uploading} label="差し替え（PDF / 画像）" compact />
+                {uploadError && <p className="text-[11px] text-red-600">{uploadError}</p>}
               </div>
             ) : (
-              <FileDropZone onFile={handleFileUpload} loading={uploading} />
+              <div className="space-y-2">
+                <FileDropZone onFile={handleFileUpload} loading={uploading} />
+                {uploadError && <p className="text-[11px] text-red-600">{uploadError}</p>}
+              </div>
             )}
           </div>
         </div>

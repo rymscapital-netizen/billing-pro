@@ -1,9 +1,15 @@
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
 import { uploadPdf } from "@/lib/storage"
+import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 
-// POST /api/invoices/[id]/upload-pdf
+function getSb() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -14,15 +20,20 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  // 請求書の存在確認とテナント確認
-  const invoice = await prisma.invoice.findUnique({
-    where: { id },
-    select: { invoiceNumber: true, issuerCompanyId: true },
-  }) as any
+  const sb = getSb()
+  const { data: invoice, error: invoiceError } = await sb.from("Invoice")
+    .select("invoiceNumber, issuerCompanyId")
+    .eq("id", id)
+    .limit(1)
+    .maybeSingle()
+
+  if (invoiceError) {
+    return NextResponse.json({ error: invoiceError.message }, { status: 500 })
+  }
   if (!invoice) {
     return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
   }
-  if (invoice.issuerCompanyId !== (session.user as any).companyId) {
+  if ((invoice as any).issuerCompanyId !== (session.user as any).companyId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
@@ -32,15 +43,16 @@ export async function POST(
     return NextResponse.json({ error: "File required" }, { status: 400 })
   }
 
-  // Supabase Storage にアップロード
-  const storagePath = await uploadPdf(file, invoice.invoiceNumber)
+  const storagePath = await uploadPdf(file, (invoice as any).invoiceNumber)
+  const { data: updated, error: updateError } = await sb.from("Invoice")
+    .update({ pdfUrl: storagePath, updatedAt: new Date().toISOString() })
+    .eq("id", id)
+    .select("id, pdfUrl")
+    .single()
 
-  // pdfUrl を DB に保存（パスのみ保存、署名URLは都度生成）
-  const updated = await prisma.invoice.update({
-    where: { id },
-    data: { pdfUrl: storagePath },
-    select: { id: true, pdfUrl: true },
-  })
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 })
+  }
 
   return NextResponse.json(updated)
 }
