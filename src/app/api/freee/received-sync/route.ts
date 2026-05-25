@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
         subject: item.title,
         issueDate,
         dueDate,
-        amount: item.totalAmount,
+        amount: Number(item.totalAmount ?? 0),
         status,
         paidAt: status === "PAID" ? dueDate : null,
         ownerCompanyId,

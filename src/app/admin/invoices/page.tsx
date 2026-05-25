@@ -1171,7 +1171,11 @@ export default function AdminInvoicesPage() {
                           <td className="px-4 py-2.5 text-navy-700 max-w-[220px] truncate">{fi.title}</td>
                           <td className="px-4 py-2.5 text-navy-500">{fi.invoiceDate ?? "—"}</td>
                           <td className="px-4 py-2.5 text-right tabular-nums text-navy-800">
-                            ¥{Number(fi.totalAmount).toLocaleString("ja-JP")}
+                            {fi.totalAmount == null ? (
+                              <span className="text-amber-600 font-medium">未読取</span>
+                            ) : (
+                              <>¥{Number(fi.totalAmount).toLocaleString("ja-JP")}</>
+                            )}
                           </td>
                         </tr>
                       ))}
