@@ -20,15 +20,30 @@ export async function GET(
 
   const u = session.user as any
 
-  const invoice = await (prisma.invoice.findUnique as any)({
-    where: { id },
-    include: {
-      company: true,
-      payments: true,
-      profit: true,
-      assignedUser: { select: { id: true, name: true } },
-    },
-  })
+  const sb = getSb()
+  const { data: invoiceRow, error } = await sb.from("Invoice")
+    .select("*, company:Company!companyId(*), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!assignedUserId(id,name)")
+    .eq("id", id)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+
+  const invoice = invoiceRow ? {
+    ...invoiceRow,
+    company: Array.isArray((invoiceRow as any).company)
+      ? ((invoiceRow as any).company[0] ?? null)
+      : (invoiceRow as any).company,
+    payments: Array.isArray((invoiceRow as any).payments)
+      ? (invoiceRow as any).payments
+      : [],
+    profit: Array.isArray((invoiceRow as any).profit)
+      ? ((invoiceRow as any).profit[0] ?? null)
+      : (invoiceRow as any).profit,
+    assignedUser: Array.isArray((invoiceRow as any).assignedUser)
+      ? ((invoiceRow as any).assignedUser[0] ?? null)
+      : (invoiceRow as any).assignedUser,
+  } : null
 
   if (!invoice) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
@@ -47,7 +62,6 @@ export async function GET(
   // 紐づき被請求書を取得（ADMINのみ・自社 ownerCompanyId に限定）
   let linkedReceivedInvoices: any[] = []
   if (u.role === "ADMIN") {
-    const sb = getSb()
     const { data } = await sb.from("ReceivedInvoice")
       .select("*")
       .eq("invoiceId", id)
