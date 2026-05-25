@@ -50,6 +50,10 @@ export default function AdminInvoicesPage() {
   useEffect(() => {
     if (searchParams.get("freee") === "connected") setFreeeConnected(true)
     if (searchParams.get("freee") === "error") showToast("freee連携に失敗しました", false)
+    fetch("/api/freee/status")
+      .then(r => r.ok ? r.json() : { connected: false })
+      .then(data => setFreeeConnected(Boolean(data.connected)))
+      .catch(() => setFreeeConnected(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -595,7 +599,21 @@ export default function AdminInvoicesPage() {
           <div className="bg-white rounded-lg border border-navy-100 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-navy-100">
             <h2 className="text-[13px] font-medium text-navy-900">被請求書一覧（経費）</h2>
-            <span className="text-[11px] text-navy-400">{rcvInvoices.length}件</span>
+            <div className="flex items-center gap-2">
+              {freeeConnected ? (
+                <button onClick={() => handleFreeeSync("received")} disabled={freeeSync}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 text-white text-[11px] font-medium rounded-md hover:bg-emerald-500 transition-colors disabled:opacity-50">
+                  <RefreshCw size={12} className={freeeSync ? "animate-spin" : ""} />
+                  {freeeSync ? "同期中..." : "freee取込"}
+                </button>
+              ) : (
+                <a href="/api/freee/auth"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-navy-200 text-navy-600 text-[11px] font-medium rounded-md hover:bg-navy-50 transition-colors">
+                  <Link2 size={12} />freee連携
+                </a>
+              )}
+              <span className="text-[11px] text-navy-400">{rcvInvoices.length}件</span>
+            </div>
           </div>
           {rcvLoading ? (
             <div className="flex items-center justify-center py-16 text-navy-400 text-[13px]">読み込み中...</div>
