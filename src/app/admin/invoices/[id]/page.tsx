@@ -302,10 +302,24 @@ export default function InvoiceDetailPage() {
 
   // ─── PDF ────────────────────────────────────────────────────
   const handleFileUpload = async (file: File) => {
+    if (uploading) return
     setUploading(true)
-    const fd = new FormData(); fd.append("file", file)
-    await fetch(`/api/invoices/${id}/upload-pdf`, { method: "POST", body: fd })
-    setUploading(false); fetchInv()
+    try {
+      const fd = new FormData(); fd.append("file", file)
+      const res = await fetch(`/api/invoices/${id}/upload-pdf`, { method: "POST", body: fd })
+      if (!res.ok) throw new Error("PDFアップロードに失敗しました")
+      const updated = await res.json()
+      setInv((prev: any) => prev ? { ...prev, pdfUrl: updated.pdfUrl } : prev)
+      const urlRes = await fetch(`/api/invoices/${id}/pdf-url`)
+      if (urlRes.ok) {
+        const { url } = await urlRes.json()
+        setPdfSignedUrl(url)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setUploading(false)
+    }
   }
 
   const handleDelete = async () => {
