@@ -90,8 +90,9 @@ export async function GET(req: NextRequest) {
       if (paymentError) throw new Error(paymentError.message)
 
       const invoiceIds = [...new Set((unclearedPayments ?? []).map((p: any) => p.invoiceId).filter(Boolean))]
-      if (invoiceIds.length === 0) return NextResponse.json([])
-      q = q.in("id", invoiceIds)
+      q = invoiceIds.length > 0
+        ? (q as any).or(`status.eq.PAYMENT_CONFIRMED,id.in.(${invoiceIds.join(",")})`)
+        : q.eq("status", "PAYMENT_CONFIRMED")
     }
 
     const { data, error } = await q
