@@ -39,8 +39,6 @@ type ProfitData = {
   users: { id: string; name: string }[]
   totals: Omit<ProfitGroup, "userId" | "userName" | "items">
   groups: ProfitGroup[]
-  unpaidTotals: Omit<ProfitGroup, "userId" | "userName" | "items">
-  unpaidGroups: ProfitGroup[]
 }
 
 const yen = (value: number) => `¥${Math.round(Number(value ?? 0)).toLocaleString("ja-JP")}`
@@ -199,7 +197,6 @@ export default function AdminProfitsPage() {
   }, [fetchData])
 
   const groups = useMemo(() => data?.groups ?? [], [data])
-  const unpaidGroups = useMemo(() => data?.unpaidGroups ?? [], [data])
   const estimatedTotalCommission = data ? data.totals.grossProfit * (commissionRate / 100) : 0
 
   return (
@@ -216,7 +213,7 @@ export default function AdminProfitsPage() {
         <div>
           <h1 className="text-[22px] font-semibold text-navy-900">担当者別利益</h1>
           <p className="text-[13px] text-navy-400 mt-1">
-            着金済みの利益と、同月に入金期限を迎える未入金を確認できます。
+            入金期限ベースで、担当者ごとの売上・原価・粗利・概算歩合を確認できます。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -257,7 +254,7 @@ export default function AdminProfitsPage() {
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-navy-900">着金済みサマリー</h2>
+          <h2 className="text-[15px] font-semibold text-navy-900">全体サマリー</h2>
           <p className="text-[12px] text-navy-400">
             {data ? `${groups.length}名 / ${data.totals.invoiceCount}件` : "読み込み中"}
           </p>
@@ -285,9 +282,9 @@ export default function AdminProfitsPage() {
             icon={<Calculator size={18} />}
           />
           <SummaryCard
-            label="着金確認済"
+            label="着金済"
             value={data ? yen(data.totals.confirmedAmount) : "..."}
-            note={data ? `${data.totals.invoiceCount}件` : undefined}
+            note={data ? `未着金 ${yen(data.totals.unconfirmedAmount)}` : undefined}
             tone="green"
             icon={<CheckCircle2 size={18} />}
           />
@@ -316,7 +313,7 @@ export default function AdminProfitsPage() {
                 </tr>
               ) : groups.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center text-navy-400 py-8">この月の着金済み利益データはありません。</td>
+                  <td colSpan={7} className="text-center text-navy-400 py-8">この月の利益データはありません。</td>
                 </tr>
               ) : groups.map(group => (
                 <tr key={group.userId}>
@@ -343,22 +340,8 @@ export default function AdminProfitsPage() {
         <h2 className="text-[15px] font-semibold text-navy-900">請求書明細</h2>
         <InvoiceTable
           groups={groups}
-          dateLabel="着金日"
-          emptyText="この月の着金済み請求書はありません。"
-        />
-      </section>
-
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-navy-900">未入金一覧</h2>
-          <p className="text-[12px] text-navy-400">
-            {data ? `${unpaidGroups.length}名 / ${data.unpaidTotals.invoiceCount}件 / 未入金 ${yen(data.unpaidTotals.unconfirmedAmount)}` : "読み込み中"}
-          </p>
-        </div>
-        <InvoiceTable
-          groups={unpaidGroups}
           dateLabel="入金期限"
-          emptyText="この月に入金期限を迎える未入金の請求書はありません。"
+          emptyText="この月に入金期限を迎える請求書はありません。"
         />
       </section>
     </div>
