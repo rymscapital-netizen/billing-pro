@@ -97,9 +97,9 @@ export async function GET(req: NextRequest) {
         .order("dueDate", { ascending: true }),
       sb.from("Company")
         .select("id, name, bankName, bankBranch, bankAccountType, bankAccountNumber, bankAccountHolder, bankAccountMemo")
-        .eq("createdByCompanyId", companyId)
         .eq("type", "CLIENT")
-        .eq("isActive", true),
+        .eq("isActive", true)
+        .or(`createdByCompanyId.eq.${companyId},createdByCompanyId.is.null`),
       sb.from("Invoice")
         .select("id, invoiceNumber, subject, issueDate, dueDate, amount, status, company:Company!companyId(id, name)")
         .eq("issuerCompanyId", companyId)
