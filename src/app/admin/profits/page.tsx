@@ -39,6 +39,8 @@ type ProfitData = {
   users: { id: string; name: string }[]
   totals: Omit<ProfitGroup, "userId" | "userName" | "items">
   groups: ProfitGroup[]
+  unpaidTotals: Omit<ProfitGroup, "userId" | "userName" | "items">
+  unpaidGroups: ProfitGroup[]
 }
 
 const yen = (value: number) => `¥${Math.round(Number(value ?? 0)).toLocaleString("ja-JP")}`
@@ -92,9 +94,76 @@ function StatusPill({ status }: { status: string }) {
   return <span className="badge badge-amber">未着金</span>
 }
 
+function InvoiceTable({
+  groups,
+  dateLabel,
+  emptyText,
+}: {
+  groups: ProfitGroup[]
+  dateLabel: string
+  emptyText: string
+}) {
+  if (groups.length === 0) {
+    return <div className="card p-8 text-center text-[13px] text-navy-400">{emptyText}</div>
+  }
+
+  return (
+    <div className="space-y-3">
+      {groups.map(group => (
+        <div key={group.userId} className="card overflow-hidden">
+          <div className="px-5 py-4 border-b border-navy-100 flex items-center justify-between">
+            <div>
+              <p className="text-[15px] font-semibold text-navy-900">{group.userName}</p>
+              <p className="text-[12px] text-navy-400 mt-1">{group.invoiceCount}件</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[11px] text-navy-400">粗利</p>
+              <p className="text-[18px] font-semibold text-emerald-700 tabular-nums">{yen(group.grossProfit)}</p>
+            </div>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>{dateLabel}</th>
+                <th>請求書番号</th>
+                <th>取引先</th>
+                <th>件名</th>
+                <th style={{ textAlign: "right" }}>売上</th>
+                <th style={{ textAlign: "right" }}>原価</th>
+                <th style={{ textAlign: "right" }}>粗利</th>
+                <th>状態</th>
+              </tr>
+            </thead>
+            <tbody>
+              {group.items.map(item => (
+                <tr key={item.id}>
+                  <td className="tabular-nums whitespace-nowrap">{item.paymentDate ? date(item.paymentDate) : "-"}</td>
+                  <td>
+                    <Link href={`/admin/invoices/${item.id}`} className="font-mono text-[11px] text-blue-700 hover:underline">
+                      {item.invoiceNumber}
+                    </Link>
+                  </td>
+                  <td className="font-medium text-navy-800">{item.companyName}</td>
+                  <td className="max-w-[280px] truncate">
+                    {item.subject}
+                    {!item.hasProfit && <span className="ml-2 badge badge-amber">利益未入力</span>}
+                  </td>
+                  <td className="amount">{yen(item.sales)}</td>
+                  <td className="amount">{yen(item.cost)}</td>
+                  <td className="amount text-emerald-700">{yen(item.grossProfit)}</td>
+                  <td><StatusPill status={item.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function AdminProfitsPage() {
   const [yearMonth, setYearMonth] = useState(currentMonth)
-  const [basis, setBasis] = useState<"payment" | "due">("payment")
   const [commissionRate, setCommissionRate] = useState(10)
   const [assignedUserId, setAssignedUserId] = useState("")
   const [users, setUsers] = useState<{ id: string; name: string }[]>([])
@@ -111,7 +180,6 @@ export default function AdminProfitsPage() {
     setLoading(true)
     try {
       const params = new URLSearchParams({ yearMonth })
-      params.set("basis", basis)
       if (assignedUserId) params.set("assignedUserId", assignedUserId)
       const res = await fetch(`/api/profit-by-user?${params.toString()}`)
       const body = await res.json().catch(() => null)
@@ -124,13 +192,14 @@ export default function AdminProfitsPage() {
     } finally {
       setLoading(false)
     }
-  }, [yearMonth, basis, assignedUserId])
+  }, [yearMonth, assignedUserId])
 
   useEffect(() => {
     fetchData()
   }, [fetchData])
 
   const groups = useMemo(() => data?.groups ?? [], [data])
+  const unpaidGroups = useMemo(() => data?.unpaidGroups ?? [], [data])
   const estimatedTotalCommission = data ? data.totals.grossProfit * (commissionRate / 100) : 0
 
   return (
@@ -147,7 +216,7 @@ export default function AdminProfitsPage() {
         <div>
           <h1 className="text-[22px] font-semibold text-navy-900">担当者別利益</h1>
           <p className="text-[13px] text-navy-400 mt-1">
-            着金日または入金期限で、担当者ごとの売上・原価・粗利・概算歩合を確認できます。
+            着金済みの利益と、同月に入金期限を迎える未入金を確認できます。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -157,14 +226,6 @@ export default function AdminProfitsPage() {
             onChange={event => setYearMonth(event.target.value)}
             className="form-input w-[150px]"
           />
-          <select
-            value={basis}
-            onChange={event => setBasis(event.target.value as "payment" | "due")}
-            className="form-input w-[150px]"
-          >
-            <option value="payment">着金日ベース</option>
-            <option value="due">入金期限ベース</option>
-          </select>
           <select
             value={assignedUserId}
             onChange={event => setAssignedUserId(event.target.value)}
@@ -196,7 +257,7 @@ export default function AdminProfitsPage() {
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-navy-900">全体サマリー</h2>
+          <h2 className="text-[15px] font-semibold text-navy-900">着金済みサマリー</h2>
           <p className="text-[12px] text-navy-400">
             {data ? `${groups.length}名 / ${data.totals.invoiceCount}件` : "読み込み中"}
           </p>
@@ -224,9 +285,9 @@ export default function AdminProfitsPage() {
             icon={<Calculator size={18} />}
           />
           <SummaryCard
-            label={basis === "payment" ? "着金確認済" : "着金済"}
+            label="着金確認済"
             value={data ? yen(data.totals.confirmedAmount) : "..."}
-            note={data ? `未着金 ${yen(data.totals.unconfirmedAmount)}` : undefined}
+            note={data ? `${data.totals.invoiceCount}件` : undefined}
             tone="green"
             icon={<CheckCircle2 size={18} />}
           />
@@ -255,7 +316,7 @@ export default function AdminProfitsPage() {
                 </tr>
               ) : groups.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center text-navy-400 py-8">この月の利益データはありません。</td>
+                  <td colSpan={7} className="text-center text-navy-400 py-8">この月の着金済み利益データはありません。</td>
                 </tr>
               ) : groups.map(group => (
                 <tr key={group.userId}>
@@ -278,62 +339,28 @@ export default function AdminProfitsPage() {
         </div>
       </section>
 
-      {groups.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-[15px] font-semibold text-navy-900">請求書明細</h2>
-          <div className="space-y-3">
-            {groups.map(group => (
-              <div key={group.userId} className="card overflow-hidden">
-                <div className="px-5 py-4 border-b border-navy-100 flex items-center justify-between">
-                  <div>
-                    <p className="text-[15px] font-semibold text-navy-900">{group.userName}</p>
-                    <p className="text-[12px] text-navy-400 mt-1">{group.invoiceCount}件</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[11px] text-navy-400">粗利</p>
-                    <p className="text-[18px] font-semibold text-emerald-700 tabular-nums">{yen(group.grossProfit)}</p>
-                  </div>
-                </div>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>{basis === "payment" ? "着金日" : "入金期限"}</th>
-                      <th>請求書番号</th>
-                      <th>取引先</th>
-                      <th>件名</th>
-                      <th style={{ textAlign: "right" }}>売上</th>
-                      <th style={{ textAlign: "right" }}>原価</th>
-                      <th style={{ textAlign: "right" }}>粗利</th>
-                      <th>状態</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.items.map(item => (
-                      <tr key={item.id}>
-                        <td className="tabular-nums whitespace-nowrap">{item.paymentDate ? date(item.paymentDate) : "-"}</td>
-                        <td>
-                          <Link href={`/admin/invoices/${item.id}`} className="font-mono text-[11px] text-blue-700 hover:underline">
-                            {item.invoiceNumber}
-                          </Link>
-                        </td>
-                        <td className="font-medium text-navy-800">{item.companyName}</td>
-                        <td className="max-w-[280px] truncate">
-                          {item.subject}
-                          {!item.hasProfit && <span className="ml-2 badge badge-amber">利益未入力</span>}
-                        </td>
-                        <td className="amount">{yen(item.sales)}</td>
-                        <td className="amount">{yen(item.cost)}</td>
-                        <td className="amount text-emerald-700">{yen(item.grossProfit)}</td>
-                        <td><StatusPill status={item.status} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      <section className="space-y-3">
+        <h2 className="text-[15px] font-semibold text-navy-900">請求書明細</h2>
+        <InvoiceTable
+          groups={groups}
+          dateLabel="着金日"
+          emptyText="この月の着金済み請求書はありません。"
+        />
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[15px] font-semibold text-navy-900">未入金一覧</h2>
+          <p className="text-[12px] text-navy-400">
+            {data ? `${unpaidGroups.length}名 / ${data.unpaidTotals.invoiceCount}件 / 未入金 ${yen(data.unpaidTotals.unconfirmedAmount)}` : "読み込み中"}
+          </p>
+        </div>
+        <InvoiceTable
+          groups={unpaidGroups}
+          dateLabel="入金期限"
+          emptyText="この月に入金期限を迎える未入金の請求書はありません。"
+        />
+      </section>
     </div>
   )
 }

@@ -134,51 +134,50 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const { yearMonth, start, end } = parseMonth(searchParams.get("yearMonth"))
     const assignedUserId = searchParams.get("assignedUserId")
-    const basis = searchParams.get("basis") === "due" ? "due" : "payment"
     const sb = getSupabase()
 
-    let query: any
-    if (basis === "due") {
-      query = sb.from("Invoice")
-        .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
-        .eq("issuerCompanyId", session.user.companyId)
-        .neq("status", "DRAFT")
-        .gte("dueDate", start.toISOString())
-        .lte("dueDate", end.toISOString())
-        .order("dueDate", { ascending: false })
+    let paymentQuery: any = sb.from("InvoicePayment")
+      .select("paymentDate, paymentAmount, invoice:Invoice!inner(id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, issuerCompanyId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*))")
+      .eq("paymentStatus", "CONFIRMED")
+      .eq("invoice.issuerCompanyId", session.user.companyId)
+      .neq("invoice.status", "DRAFT")
+      .gte("paymentDate", start.toISOString())
+      .lte("paymentDate", end.toISOString())
+      .order("paymentDate", { ascending: false })
 
-      if (assignedUserId) query = query.eq("assignedUserId", assignedUserId)
-    } else {
-      query = sb.from("InvoicePayment")
-        .select("paymentDate, paymentAmount, invoice:Invoice!inner(id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, issuerCompanyId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*))")
-        .eq("paymentStatus", "CONFIRMED")
-        .eq("invoice.issuerCompanyId", session.user.companyId)
-        .neq("invoice.status", "DRAFT")
-        .gte("paymentDate", start.toISOString())
-        .lte("paymentDate", end.toISOString())
-        .order("paymentDate", { ascending: false })
+    let unpaidQuery: any = sb.from("Invoice")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .eq("issuerCompanyId", session.user.companyId)
+      .in("status", ["ISSUED", "PENDING", "OVERDUE"])
+      .gte("dueDate", start.toISOString())
+      .lte("dueDate", end.toISOString())
+      .order("dueDate", { ascending: false })
 
-      if (assignedUserId) query = query.eq("invoice.assignedUserId", assignedUserId)
+    if (assignedUserId) {
+      paymentQuery = paymentQuery.eq("invoice.assignedUserId", assignedUserId)
+      unpaidQuery = unpaidQuery.eq("assignedUserId", assignedUserId)
     }
 
     const [
-      { data, error },
+      { data: paymentRows, error: paymentError },
+      { data: unpaidRows, error: unpaidError },
       { data: userRows, error: userError },
     ] = await Promise.all([
-      query,
+      paymentQuery,
+      unpaidQuery,
       sb.from("User")
         .select("id, name")
         .eq("companyId", session.user.companyId)
         .eq("isActive", true)
         .order("name", { ascending: true }),
     ])
-    if (error) throw new Error(error.message)
+    if (paymentError) throw new Error(paymentError.message)
+    if (unpaidError) throw new Error(unpaidError.message)
     if (userError) throw new Error(userError.message)
 
-    const groups = basis === "due"
-      ? groupDueInvoices(data ?? [])
-      : groupPayments(data ?? [])
-    const totals = groups.reduce((sum, group) => ({
+    const groups = groupPayments(paymentRows ?? [])
+    const unpaidGroups = groupDueInvoices(unpaidRows ?? [])
+    const buildTotals = (sourceGroups: any[]) => sourceGroups.reduce((sum, group) => ({
       sales: sum.sales + group.sales,
       cost: sum.cost + group.cost,
       grossProfit: sum.grossProfit + group.grossProfit,
@@ -197,16 +196,22 @@ export async function GET(req: NextRequest) {
       invoiceCount: 0,
       missingProfitCount: 0,
     })
+    const totals = buildTotals(groups)
+    const unpaidTotals = buildTotals(unpaidGroups)
 
     return NextResponse.json({
       month: yearMonth,
-      basis,
       users: userRows ?? [],
       totals: {
         ...totals,
         profitRate: totals.sales > 0 ? (totals.grossProfit / totals.sales) * 100 : 0,
       },
       groups,
+      unpaidTotals: {
+        ...unpaidTotals,
+        profitRate: unpaidTotals.sales > 0 ? (unpaidTotals.grossProfit / unpaidTotals.sales) * 100 : 0,
+      },
+      unpaidGroups,
     })
   } catch (e: any) {
     console.error("[profit-by-user ERROR]", e?.message ?? e)
