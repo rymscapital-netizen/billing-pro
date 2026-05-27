@@ -14,12 +14,17 @@ function parseMonth(value: string | null) {
   const fallback = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`
   const yearMonth = /^\d{4}-\d{2}$/.test(value ?? "") ? value! : fallback
   const [year, month] = yearMonth.split("-").map(Number)
-  const start = new Date(Date.UTC(year, month - 1, 1) - 9 * 60 * 60 * 1000)
-  const endExclusive = new Date(Date.UTC(year, month, 1) - 9 * 60 * 60 * 1000)
+  const start = toDbMonthStart(year, month - 1)
+  const endExclusive = toDbMonthStart(year, month)
   return { yearMonth, start, endExclusive }
 }
 
 const toNumber = (value: unknown) => Number(value ?? 0)
+
+function toDbMonthStart(year: number, monthIndex: number) {
+  const date = new Date(year, monthIndex, 1)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01T00:00:00`
+}
 
 function addInvoiceToGroups(
   groups: Map<string, any>,
@@ -140,6 +145,9 @@ function formatYearMonth(date: Date) {
 }
 
 function formatJstYearMonth(value: string) {
+  const hasExplicitTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
+  if (!hasExplicitTimezone) return value.slice(0, 7)
+
   const date = new Date(value)
   const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000)
   return `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2, "0")}`
@@ -189,22 +197,22 @@ export async function GET(req: NextRequest) {
     const assignedUserId = searchParams.get("assignedUserId")
     const sb = getSupabase()
     const [selectedYear, selectedMonth] = yearMonth.split("-").map(Number)
-    const historyStart = new Date(Date.UTC(selectedYear, selectedMonth - 12, 1) - 9 * 60 * 60 * 1000)
+    const historyStart = toDbMonthStart(selectedYear, selectedMonth - 12)
 
     let query: any = sb.from("Invoice")
       .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
-      .gte("dueDate", start.toISOString())
-      .lt("dueDate", endExclusive.toISOString())
+      .gte("dueDate", start)
+      .lt("dueDate", endExclusive)
       .order("dueDate", { ascending: false })
 
     let historyQuery: any = sb.from("Invoice")
       .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
-      .gte("dueDate", historyStart.toISOString())
-      .lt("dueDate", endExclusive.toISOString())
+      .gte("dueDate", historyStart)
+      .lt("dueDate", endExclusive)
       .order("dueDate", { ascending: false })
 
     if (assignedUserId) {

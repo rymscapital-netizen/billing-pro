@@ -10,8 +10,18 @@ import Link from "next/link"
 import { FileDropZone } from "@/components/shared/FileDropZone"
 
 const yen      = (n: number) => `¥${Math.round(n).toLocaleString("ja-JP")}`
-const dateStr  = (d: string) => new Date(d).toLocaleDateString("ja-JP")
-const isoDate  = (d: string) => new Date(d).toISOString().slice(0, 10)
+const dateStr  = (d: string) => {
+  const datePart = d?.slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    return datePart.replace(/-/g, "/").replace(/\/0/g, "/")
+  }
+  return new Date(d).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })
+}
+const isoDate  = (d: string) => {
+  const datePart = d?.slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart
+  return new Date(d).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" })
+}
 
 // 税込/税抜 計算
 type TaxBreakdown = { ex: number; inc: number; taxRate: number }
