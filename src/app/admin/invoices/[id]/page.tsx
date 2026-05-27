@@ -144,7 +144,7 @@ export default function InvoiceDetailPage() {
     const tax = Math.round(editForm.subtotal * (editForm.taxRate / 100))
 
     // 1. 請求書本体 + 利益情報 PATCH
-    await fetch(`/api/invoices/${id}`, {
+    const invoiceRes = await fetch(`/api/invoices/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -159,6 +159,12 @@ export default function InvoiceDetailPage() {
         cost:           costBreak.ex,
       }),
     })
+    if (!invoiceRes.ok) {
+      const error = await invoiceRes.json().catch(() => ({}))
+      setSaving(false)
+      alert(error.error ?? "保存に失敗しました")
+      return
+    }
 
     // 2. 被請求書リンク変更
     const currentIds = new Set(linkedRcvList.map((r: any) => r.id))

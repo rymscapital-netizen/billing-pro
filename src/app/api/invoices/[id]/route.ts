@@ -10,6 +10,21 @@ function getSb() {
   )
 }
 
+function normalizeInvoice(row: any) {
+  return {
+    ...row,
+    company: Array.isArray(row.company) ? (row.company[0] ?? null) : row.company,
+    payments: Array.isArray(row.payments) ? row.payments : [],
+    profit: Array.isArray(row.profit) ? (row.profit[0] ?? null) : row.profit,
+    assignedUser: Array.isArray(row.assignedUser)
+      ? (row.assignedUser[0] ?? null)
+      : row.assignedUser,
+  }
+}
+
+const invoiceSelect =
+  "*, company:Company!companyId(*), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!assignedUserId(id,name)"
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -19,47 +34,27 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const u = session.user as any
-
   const sb = getSb()
   const { data: invoiceRow, error } = await sb.from("Invoice")
-    .select("*, company:Company!companyId(*), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!assignedUserId(id,name)")
+    .select(invoiceSelect)
     .eq("id", id)
     .limit(1)
     .maybeSingle()
 
-  if (error) throw new Error(error.message)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!invoiceRow) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  const invoice = invoiceRow ? {
-    ...invoiceRow,
-    company: Array.isArray((invoiceRow as any).company)
-      ? ((invoiceRow as any).company[0] ?? null)
-      : (invoiceRow as any).company,
-    payments: Array.isArray((invoiceRow as any).payments)
-      ? (invoiceRow as any).payments
-      : [],
-    profit: Array.isArray((invoiceRow as any).profit)
-      ? ((invoiceRow as any).profit[0] ?? null)
-      : (invoiceRow as any).profit,
-    assignedUser: Array.isArray((invoiceRow as any).assignedUser)
-      ? ((invoiceRow as any).assignedUser[0] ?? null)
-      : (invoiceRow as any).assignedUser,
-  } : null
-
-  if (!invoice) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-  // アクセス制御: 発行者か受取先のみ閲覧可（ADMIN も自社テナントのみ）
-  const isIssuer    = (invoice as any).issuerCompanyId === u.companyId
+  const invoice = normalizeInvoice(invoiceRow)
+  const isIssuer = invoice.issuerCompanyId === u.companyId
   const isRecipient = invoice.companyId === u.companyId
   if (!isIssuer && !isRecipient) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  // 利益情報は発行者のみ見える
   if (!isIssuer) {
-    (invoice as any).profit = null
+    invoice.profit = null
   }
 
-  // 紐づき被請求書を取得（ADMINのみ・自社 ownerCompanyId に限定）
   let linkedReceivedInvoices: any[] = []
   if (u.role === "ADMIN") {
     const { data } = await sb.from("ReceivedInvoice")
@@ -81,70 +76,106 @@ export async function PATCH(
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const u = session.user as any
+  const sb = getSb()
 
-  // 発行者のみ編集可（ADMIN・CLIENT 問わず）
-  const inv = await prisma.invoice.findUnique({
-    where: { id },
-    select: { issuerCompanyId: true, invoiceNumber: true },
-  }) as any
-  if (!inv || inv.issuerCompanyId !== u.companyId)
+  const { data: inv, error: invError } = await sb.from("Invoice")
+    .select("issuerCompanyId, subtotal")
+    .eq("id", id)
+    .limit(1)
+    .maybeSingle()
+  if (invError) return NextResponse.json({ error: invError.message }, { status: 500 })
+  if (!inv || inv.issuerCompanyId !== u.companyId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
-  const body = await req.json()
-  const data: any = {}
-
-  if (body.subject        !== undefined) data.subject        = body.subject
-  if (body.issueDate      !== undefined) data.issueDate      = new Date(body.issueDate)
-  if (body.dueDate        !== undefined) data.dueDate        = new Date(body.dueDate)
-  if (body.notes          !== undefined) data.notes          = body.notes || null
-  if (body.assignedUserId !== undefined) data.assignedUserId = body.assignedUserId || null
-  if (body.subtotal       !== undefined) {
-    const tax    = body.tax ?? 0
-    data.subtotal = body.subtotal
-    data.tax      = tax
-    data.amount   = body.subtotal + tax
   }
 
-  const updated = await prisma.invoice.update({
-    where: { id },
-    data,
-    include: { company: true, payments: true, profit: true, assignedUser: { select: { id: true, name: true } } },
-  })
+  const body = await req.json()
+  const data: Record<string, any> = { updatedAt: new Date().toISOString() }
 
-  // 売上・原価が指定された場合、InvoiceProfit を upsert
+  if (body.subject !== undefined) data.subject = body.subject
+  if (body.issueDate !== undefined) data.issueDate = new Date(body.issueDate).toISOString()
+  if (body.dueDate !== undefined) data.dueDate = new Date(body.dueDate).toISOString()
+  if (body.notes !== undefined) data.notes = body.notes || null
+  if (body.assignedUserId !== undefined) data.assignedUserId = body.assignedUserId || null
+  if (body.subtotal !== undefined) {
+    const tax = body.tax ?? 0
+    data.subtotal = body.subtotal
+    data.tax = tax
+    data.amount = body.subtotal + tax
+  }
+
+  const { data: updatedRow, error: updateError } = await sb.from("Invoice")
+    .update(data)
+    .eq("id", id)
+    .select(invoiceSelect)
+    .limit(1)
+    .maybeSingle()
+  if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
+  if (!updatedRow) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+  let updated = normalizeInvoice(updatedRow)
+
   if (body.cost !== undefined || body.sales !== undefined) {
     const sales = body.sales !== undefined
       ? Number(body.sales)
-      : Number(updated.profit?.sales ?? updated.subtotal)
-    const cost  = body.cost !== undefined
+      : Number(updated.profit?.sales ?? updated.subtotal ?? inv.subtotal)
+    const cost = body.cost !== undefined
       ? Number(body.cost)
       : Number(updated.profit?.cost ?? 0)
     const grossProfit = sales - cost
-    const profitRate  = sales > 0 ? (grossProfit / sales) * 100 : 0
-    await (prisma.invoiceProfit.upsert as any)({
-      where:  { invoiceId: id },
-      create: { invoiceId: id, sales, cost, grossProfit, profitRate },
-      update: { sales, cost, grossProfit, profitRate },
-    })
+    const profitRate = sales > 0 ? (grossProfit / sales) * 100 : 0
+    const now = new Date().toISOString()
+
+    const { data: existingProfit, error: profitFindError } = await sb.from("InvoiceProfit")
+      .select("id")
+      .eq("invoiceId", id)
+      .limit(1)
+      .maybeSingle()
+    if (profitFindError) {
+      return NextResponse.json({ error: profitFindError.message }, { status: 500 })
+    }
+
+    if (existingProfit?.id) {
+      const { error: profitUpdateError } = await sb.from("InvoiceProfit")
+        .update({ sales, cost, grossProfit, profitRate, updatedAt: now })
+        .eq("invoiceId", id)
+      if (profitUpdateError) {
+        return NextResponse.json({ error: profitUpdateError.message }, { status: 500 })
+      }
+    } else {
+      const { error: profitInsertError } = await sb.from("InvoiceProfit")
+        .insert({
+          id: crypto.randomUUID(),
+          invoiceId: id,
+          sales,
+          cost,
+          grossProfit,
+          profitRate,
+          createdAt: now,
+          updatedAt: now,
+        })
+      if (profitInsertError) {
+        return NextResponse.json({ error: profitInsertError.message }, { status: 500 })
+      }
+    }
+
+    updated = {
+      ...updated,
+      profit: { ...(updated.profit ?? {}), sales, cost, grossProfit, profitRate },
+    }
   }
 
-  // 紐づいた ReceivedInvoice を同期（受取側の内容を最新に保つ）
   const rcvUpdates: Record<string, any> = { updatedAt: new Date().toISOString() }
-  if (body.subject   !== undefined) rcvUpdates.subject   = body.subject
+  if (body.subject !== undefined) rcvUpdates.subject = body.subject
   if (body.issueDate !== undefined) rcvUpdates.issueDate = new Date(body.issueDate).toISOString()
-  if (body.dueDate   !== undefined) rcvUpdates.dueDate   = new Date(body.dueDate).toISOString()
-  if (body.notes     !== undefined) rcvUpdates.notes     = body.notes || null
-  if (body.subtotal  !== undefined) rcvUpdates.amount    = body.subtotal + (body.tax ?? 0)
+  if (body.dueDate !== undefined) rcvUpdates.dueDate = new Date(body.dueDate).toISOString()
+  if (body.notes !== undefined) rcvUpdates.notes = body.notes || null
+  if (body.subtotal !== undefined) rcvUpdates.amount = body.subtotal + (body.tax ?? 0)
 
   if (Object.keys(rcvUpdates).length > 1) {
-    try {
-      const sb = getSb()
-      await sb.from("ReceivedInvoice")
-        .update(rcvUpdates)
-        .eq("invoiceId", id)
-    } catch (e: any) {
-      console.error("[invoices PATCH] ReceivedInvoice sync failed:", e?.message)
-    }
+    const { error: rcvError } = await sb.from("ReceivedInvoice")
+      .update(rcvUpdates)
+      .eq("invoiceId", id)
+    if (rcvError) console.error("[invoices PATCH] ReceivedInvoice sync failed:", rcvError.message)
   }
 
   return NextResponse.json(updated)
@@ -159,12 +190,11 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const u = session.user as any
 
-  // 発行者のみ削除可（ADMIN・CLIENT 問わず）
   const inv = await prisma.invoice.findUnique({ where: { id }, select: { issuerCompanyId: true } }) as any
-  if (!inv || inv.issuerCompanyId !== u.companyId)
+  if (!inv || inv.issuerCompanyId !== u.companyId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
 
-  // 紐づいた ReceivedInvoice を先に削除
   try {
     const sb = getSb()
     await sb.from("ReceivedInvoice").delete().eq("invoiceId", id)
