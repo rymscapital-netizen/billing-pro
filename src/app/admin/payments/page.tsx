@@ -288,8 +288,8 @@ export default function AdminPaymentsPage() {
                         <tr>
                           <th>支払期限</th>
                           <th>件名</th>
-                          <th className="text-right">金額</th>
-                          <th className="text-right">操作</th>
+                          <th style={{ textAlign: "right" }}>金額</th>
+                          <th style={{ textAlign: "right" }}>操作</th>
                         </tr>
                       </thead>
                       <tbody>
