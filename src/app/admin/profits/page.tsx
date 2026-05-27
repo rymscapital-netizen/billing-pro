@@ -3,7 +3,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
-import { Calculator, CheckCircle2, Percent, RefreshCw, TrendingUp, Wallet } from "lucide-react"
+import { Calculator, CheckCircle2, RefreshCw, TrendingUp, Wallet } from "lucide-react"
 
 const Bar = dynamic(() => import("recharts").then(m => m.Bar), { ssr: false })
 const CartesianGrid = dynamic(() => import("recharts").then(m => m.CartesianGrid), { ssr: false })
@@ -26,6 +26,8 @@ type ProfitItem = {
   sales: number
   cost: number
   grossProfit: number
+  commissionRate: number
+  commissionAmount: number
   amount: number
   status: string
   hasProfit: boolean
@@ -37,6 +39,8 @@ type ProfitGroup = {
   sales: number
   cost: number
   grossProfit: number
+  commissionRate: number
+  commissionAmount: number
   amount: number
   confirmedAmount: number
   unconfirmedAmount: number
@@ -52,6 +56,20 @@ type ProfitHistory = {
   sales: number
   cost: number
   grossProfit: number
+  commissionAmount: number
+  amount: number
+  confirmedAmount: number
+  unconfirmedAmount: number
+  invoiceCount: number
+  missingProfitCount: number
+  profitRate: number
+}
+
+type ProfitTotals = {
+  sales: number
+  cost: number
+  grossProfit: number
+  commissionAmount: number
   amount: number
   confirmedAmount: number
   unconfirmedAmount: number
@@ -61,10 +79,14 @@ type ProfitHistory = {
 }
 
 type ProfitData = {
-  users: { id: string; name: string }[]
-  totals: Omit<ProfitGroup, "userId" | "userName" | "items">
+  users: { id: string; name: string; commissionRate: number }[]
+  totals: ProfitTotals
   groups: ProfitGroup[]
   history: ProfitHistory[]
+  fiscalYear: {
+    startMonth: string
+    endMonth: string
+  }
 }
 
 const yen = (value: number) => `¥${Math.round(Number(value ?? 0)).toLocaleString("ja-JP")}`
@@ -202,9 +224,8 @@ function InvoiceTable({
 
 export default function AdminProfitsPage() {
   const [yearMonth, setYearMonth] = useState(currentMonth)
-  const [commissionRate, setCommissionRate] = useState(10)
   const [assignedUserId, setAssignedUserId] = useState("")
-  const [users, setUsers] = useState<{ id: string; name: string }[]>([])
+  const [users, setUsers] = useState<{ id: string; name: string; commissionRate: number }[]>([])
   const [data, setData] = useState<ProfitData | null>(null)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
@@ -237,13 +258,12 @@ export default function AdminProfitsPage() {
   }, [fetchData])
 
   const groups = useMemo(() => data?.groups ?? [], [data])
-  const estimatedTotalCommission = data ? data.totals.grossProfit * (commissionRate / 100) : 0
   const chartData = useMemo(() => (data?.history ?? []).map(row => ({
     month: row.label,
     sales: row.sales,
     grossProfit: row.grossProfit,
-    commission: row.grossProfit * (commissionRate / 100),
-  })), [data, commissionRate])
+    commission: row.commissionAmount,
+  })), [data])
   const hasHistory = chartData.some(row => row.sales !== 0 || row.grossProfit !== 0 || row.commission !== 0)
 
   return (
@@ -280,18 +300,6 @@ export default function AdminProfitsPage() {
               <option key={user.id} value={user.id}>{user.name}</option>
             ))}
           </select>
-          <div className="flex items-center gap-1 bg-white border border-navy-200 rounded-lg px-3 py-2">
-            <Percent size={14} className="text-navy-400" />
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              value={commissionRate}
-              onChange={event => setCommissionRate(Number(event.target.value) || 0)}
-              className="w-[64px] text-[13px] text-right outline-none tabular-nums"
-            />
-          </div>
           <button className="btn bg-white" onClick={fetchData} disabled={loading}>
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             更新
@@ -323,8 +331,8 @@ export default function AdminProfitsPage() {
           />
           <SummaryCard
             label="概算歩合"
-            value={data ? yen(estimatedTotalCommission) : "..."}
-            note={`粗利 × ${commissionRate}%`}
+            value={data ? yen(data.totals.commissionAmount) : "..."}
+            note="担当者ごとの固定歩合率で計算"
             tone="amber"
             icon={<Calculator size={18} />}
           />
@@ -342,9 +350,14 @@ export default function AdminProfitsPage() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-[15px] font-semibold text-navy-900">過去12か月の成績</h2>
-            <p className="text-[12px] text-navy-400 mt-1">入金期限ベースで、売上・粗利・概算歩合の推移を確認できます。</p>
+            <p className="text-[12px] text-navy-400 mt-1">
+              決算期（6月〜5月）ごとに、売上・粗利・概算歩合の推移を確認できます。
+            </p>
           </div>
-          <p className="text-[12px] text-navy-400">{assignedUserId ? "選択中の担当者のみ" : "全担当者"}</p>
+          <p className="text-[12px] text-navy-400">
+            {data ? `${data.fiscalYear.startMonth}〜${data.fiscalYear.endMonth}` : ""}
+            {assignedUserId ? " / 選択中の担当者のみ" : " / 全担当者"}
+          </p>
         </div>
         <div className="card p-4">
           {loading ? (
@@ -382,6 +395,7 @@ export default function AdminProfitsPage() {
                 <th style={{ textAlign: "right" }}>原価</th>
                 <th style={{ textAlign: "right" }}>粗利</th>
                 <th style={{ textAlign: "right" }}>粗利率</th>
+                <th style={{ textAlign: "right" }}>歩合率</th>
                 <th style={{ textAlign: "right" }}>概算歩合</th>
                 <th style={{ textAlign: "right" }}>件数</th>
               </tr>
@@ -389,11 +403,11 @@ export default function AdminProfitsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center text-navy-400 py-8">読み込み中...</td>
+                  <td colSpan={8} className="text-center text-navy-400 py-8">読み込み中...</td>
                 </tr>
               ) : groups.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center text-navy-400 py-8">この月の利益データはありません。</td>
+                  <td colSpan={8} className="text-center text-navy-400 py-8">この月の利益データはありません。</td>
                 </tr>
               ) : groups.map(group => (
                 <tr key={group.userId}>
@@ -407,7 +421,8 @@ export default function AdminProfitsPage() {
                   <td className="amount">{yen(group.cost)}</td>
                   <td className="amount text-emerald-700">{yen(group.grossProfit)}</td>
                   <td className="amount">{pct(group.profitRate)}</td>
-                  <td className="amount text-gold-700">{yen(group.grossProfit * (commissionRate / 100))}</td>
+                  <td className="amount">{pct(group.commissionRate)}</td>
+                  <td className="amount text-gold-700">{yen(group.commissionAmount)}</td>
                   <td className="text-right tabular-nums">{group.invoiceCount}件</td>
                 </tr>
               ))}

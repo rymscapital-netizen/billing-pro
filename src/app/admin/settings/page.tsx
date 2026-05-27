@@ -32,6 +32,7 @@ export default function SettingsPage() {
   const [staffName,     setStaffName]     = useState("")
   const [staffEmail,    setStaffEmail]    = useState("")
   const [staffPassword, setStaffPassword] = useState("")
+  const [staffCommissionRate, setStaffCommissionRate] = useState(0)
   const [showStaffPass, setShowStaffPass] = useState(false)
   const [addingStaff,   setAddingStaff]   = useState(false)
   const [staffAdded,    setStaffAdded]    = useState(false)
@@ -46,6 +47,8 @@ export default function SettingsPage() {
   const [addingUser,   setAddingUser]   = useState(false)
   const [userAdded,    setUserAdded]    = useState(false)
   const [users,        setUsers]        = useState<any[]>([])
+  const [commissionSavingId, setCommissionSavingId] = useState("")
+  const [commissionSavedId,  setCommissionSavedId]  = useState("")
 
   // セッションからアカウント情報を初期化
   useEffect(() => {
@@ -104,12 +107,13 @@ export default function SettingsPage() {
       body: JSON.stringify({
         name: staffName, email: staffEmail, password: staffPassword,
         role: "ADMIN", companyId: adminCompanyId,
+        commissionRate: staffCommissionRate,
       }),
     })
     if (res.ok) {
       const newUser = await res.json()
       setUsers(prev => [newUser, ...prev])
-      setStaffName(""); setStaffEmail(""); setStaffPassword("")
+      setStaffName(""); setStaffEmail(""); setStaffPassword(""); setStaffCommissionRate(0)
       setStaffAdded(true)
       setTimeout(() => setStaffAdded(false), 3000)
     }
@@ -147,6 +151,32 @@ export default function SettingsPage() {
       setTimeout(() => setUserAdded(false), 3000)
     }
     setAddingUser(false)
+  }
+
+  const handleCommissionChange = (userId: string, value: number) => {
+    const rate = Number.isFinite(value) ? Math.min(Math.max(value, 0), 100) : 0
+    setUsers(prev => prev.map(user => user.id === userId ? { ...user, commissionRate: rate } : user))
+  }
+
+  const handleSaveCommission = async (userId: string) => {
+    const target = users.find(user => user.id === userId)
+    if (!target) return
+    setCommissionSavingId(userId)
+    const res = await fetch("/api/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId,
+        commissionRate: Number(target.commissionRate ?? 0),
+      }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setUsers(prev => prev.map(user => user.id === userId ? { ...user, ...updated } : user))
+      setCommissionSavedId(userId)
+      setTimeout(() => setCommissionSavedId(""), 2500)
+    }
+    setCommissionSavingId("")
   }
 
   return (
@@ -301,6 +331,21 @@ export default function SettingsPage() {
                 </button>
               </div>
             </div>
+            <div>
+              <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">固定歩合率</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  value={staffCommissionRate}
+                  onChange={e => setStaffCommissionRate(Number(e.target.value) || 0)}
+                  className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] text-right tabular-nums focus:outline-none focus:border-navy-400"
+                />
+                <span className="text-[12px] text-navy-400">%</span>
+              </div>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-3 mt-5 pt-4 border-t border-navy-100">
@@ -412,7 +457,7 @@ export default function SettingsPage() {
               <table className="w-full text-[12.5px]">
                 <thead>
                   <tr className="bg-white border-b border-navy-100">
-                    {["氏名","メールアドレス","役割","ステータス"].map(h => (
+                    {["氏名","メールアドレス","役割","固定歩合率","ステータス"].map(h => (
                       <th key={h} className="text-left px-4 py-2 text-[10.5px] text-navy-400 font-medium">{h}</th>
                     ))}
                   </tr>
@@ -428,6 +473,33 @@ export default function SettingsPage() {
                         }`}>
                           {u.role === "ADMIN" ? "管理者（担当者）" : "取引先ユーザー"}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {u.role === "ADMIN" ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={0.1}
+                              value={Number(u.commissionRate ?? 0)}
+                              onChange={e => handleCommissionChange(u.id, Number(e.target.value))}
+                              className="w-[82px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400"
+                            />
+                            <span className="text-[12px] text-navy-400">%</span>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveCommission(u.id)}
+                              disabled={commissionSavingId === u.id}
+                              className="px-2.5 py-1.5 text-[11px] font-medium border border-navy-200 text-navy-700 rounded-md hover:bg-navy-50 disabled:opacity-50"
+                            >
+                              {commissionSavingId === u.id ? "保存中" : "保存"}
+                            </button>
+                            {commissionSavedId === u.id && <span className="text-[11px] text-emerald-600">保存済み</span>}
+                          </div>
+                        ) : (
+                          <span className="text-[12px] text-navy-300">-</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${

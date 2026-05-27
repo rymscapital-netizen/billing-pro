@@ -36,18 +36,22 @@ function addInvoiceToGroups(
   const profit = Array.isArray(row.profit) ? row.profit[0] : row.profit
   const userId = assignedUser?.id ?? "unassigned"
   const userName = assignedUser?.name ?? "未設定"
+  const commissionRate = toNumber(assignedUser?.commissionRate)
   const sales = profit ? toNumber(profit.sales) : toNumber(row.subtotal)
   const cost = profit ? toNumber(profit.cost) : 0
   const grossProfit = profit ? toNumber(profit.grossProfit) : sales - cost
   const amount = toNumber(row.amount)
   const confirmedAmount = options.confirmedAmount
+  const commissionAmount = grossProfit * (commissionRate / 100)
 
   const current = groups.get(userId) ?? {
     userId,
     userName,
+    commissionRate,
     sales: 0,
     cost: 0,
     grossProfit: 0,
+    commissionAmount: 0,
     amount: 0,
     confirmedAmount: 0,
     unconfirmedAmount: 0,
@@ -59,6 +63,7 @@ function addInvoiceToGroups(
   current.sales += sales
   current.cost += cost
   current.grossProfit += grossProfit
+  current.commissionAmount += commissionAmount
   current.amount += amount
   current.confirmedAmount += confirmedAmount
   current.unconfirmedAmount += Math.max(amount - confirmedAmount, 0)
@@ -75,6 +80,8 @@ function addInvoiceToGroups(
     sales,
     cost,
     grossProfit,
+    commissionRate,
+    commissionAmount,
     amount,
     status: row.status,
     hasProfit: Boolean(profit),
@@ -118,6 +125,7 @@ function buildTotals(sourceGroups: any[]) {
     sales: sum.sales + group.sales,
     cost: sum.cost + group.cost,
     grossProfit: sum.grossProfit + group.grossProfit,
+    commissionAmount: sum.commissionAmount + group.commissionAmount,
     amount: sum.amount + group.amount,
     confirmedAmount: sum.confirmedAmount + group.confirmedAmount,
     unconfirmedAmount: sum.unconfirmedAmount + group.unconfirmedAmount,
@@ -127,6 +135,7 @@ function buildTotals(sourceGroups: any[]) {
     sales: 0,
     cost: 0,
     grossProfit: 0,
+    commissionAmount: 0,
     amount: 0,
     confirmedAmount: 0,
     unconfirmedAmount: 0,
@@ -153,9 +162,13 @@ function formatJstYearMonth(value: string) {
   return `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2, "0")}`
 }
 
-function buildHistory(rows: any[], selectedYearMonth: string) {
+function buildFiscalMonths(selectedYearMonth: string) {
   const [year, month] = selectedYearMonth.split("-").map(Number)
-  const monthStarts = Array.from({ length: 12 }, (_, index) => new Date(year, month - 12 + index, 1))
+  const fiscalStartYear = month >= 6 ? year : year - 1
+  return Array.from({ length: 12 }, (_, index) => new Date(fiscalStartYear, 5 + index, 1))
+}
+
+function buildHistory(rows: any[], monthStarts: Date[]) {
   const rowsByMonth = new Map<string, any[]>()
 
   for (const row of rows) {
@@ -176,6 +189,7 @@ function buildHistory(rows: any[], selectedYearMonth: string) {
       sales: totals.sales,
       cost: totals.cost,
       grossProfit: totals.grossProfit,
+      commissionAmount: totals.commissionAmount,
       amount: totals.amount,
       confirmedAmount: totals.confirmedAmount,
       unconfirmedAmount: totals.unconfirmedAmount,
@@ -196,11 +210,13 @@ export async function GET(req: NextRequest) {
     const { yearMonth, start, endExclusive } = parseMonth(searchParams.get("yearMonth"))
     const assignedUserId = searchParams.get("assignedUserId")
     const sb = getSupabase()
-    const [selectedYear, selectedMonth] = yearMonth.split("-").map(Number)
-    const historyStart = toDbMonthStart(selectedYear, selectedMonth - 12)
+    const fiscalMonths = buildFiscalMonths(yearMonth)
+    const fiscalStart = toDbMonthStart(fiscalMonths[0].getFullYear(), fiscalMonths[0].getMonth())
+    const fiscalEndMonth = fiscalMonths[11]
+    const fiscalEndExclusive = toDbMonthStart(fiscalEndMonth.getFullYear(), fiscalEndMonth.getMonth() + 1)
 
     let query: any = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", start)
@@ -208,11 +224,11 @@ export async function GET(req: NextRequest) {
       .order("dueDate", { ascending: false })
 
     let historyQuery: any = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
-      .gte("dueDate", historyStart)
-      .lt("dueDate", endExclusive)
+      .gte("dueDate", fiscalStart)
+      .lt("dueDate", fiscalEndExclusive)
       .order("dueDate", { ascending: false })
 
     if (assignedUserId) {
@@ -228,7 +244,7 @@ export async function GET(req: NextRequest) {
       query,
       historyQuery,
       sb.from("User")
-        .select("id, name")
+        .select("id, name, commissionRate")
         .eq("companyId", session.user.companyId)
         .eq("isActive", true)
         .order("name", { ascending: true }),
@@ -245,7 +261,11 @@ export async function GET(req: NextRequest) {
       users: userRows ?? [],
       totals,
       groups,
-      history: buildHistory(historyRows ?? [], yearMonth),
+      fiscalYear: {
+        startMonth: formatYearMonth(fiscalMonths[0]),
+        endMonth: formatYearMonth(fiscalMonths[11]),
+      },
+      history: buildHistory(historyRows ?? [], fiscalMonths),
     })
   } catch (e: any) {
     console.error("[profit-by-user ERROR]", e?.message ?? e)

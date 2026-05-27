@@ -11,6 +11,13 @@ const createSchema = z.object({
   password:  z.string().min(6),
   role:      z.enum(["ADMIN", "CLIENT"]),
   companyId: z.string().min(1),
+  commissionRate: z.number().min(0).max(100).optional(),
+})
+
+const updateSchema = z.object({
+  userId: z.string().min(1),
+  commissionRate: z.number().min(0).max(100).optional(),
+  isActive: z.boolean().optional(),
 })
 
 function getSb() {
@@ -28,7 +35,7 @@ export async function GET() {
   try {
     const sb = getSb()
     const { data: users, error } = await sb.from("User")
-      .select("id, name, email, role, companyId, isActive, createdAt, updatedAt")
+      .select("id, name, email, role, companyId, isActive, commissionRate, createdAt, updatedAt")
       .eq("companyId", u.companyId)
       .order("createdAt", { ascending: false })
     if (error) throw new Error(error.message)
@@ -73,8 +80,43 @@ export async function POST(req: NextRequest) {
       passwordHash,
       role,
       companyId:    body.companyId,
+      commissionRate: role === "ADMIN" ? body.commissionRate ?? 0 : 0,
     },
     include: { company: { select: { id: true, name: true } } },
   })
   return NextResponse.json(user, { status: 201 })
+}
+
+export async function PATCH(req: NextRequest) {
+  const session = await auth()
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const u = session.user as any
+  if (u.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  const body = updateSchema.parse(await req.json())
+  const sb = getSb()
+
+  const updates: Record<string, any> = { updatedAt: new Date().toISOString() }
+  if (body.commissionRate !== undefined) updates.commissionRate = body.commissionRate
+  if (body.isActive !== undefined) updates.isActive = body.isActive
+
+  const { data, error } = await sb.from("User")
+    .update(updates)
+    .eq("id", body.userId)
+    .eq("companyId", u.companyId)
+    .select("id, name, email, role, companyId, isActive, commissionRate, createdAt, updatedAt")
+    .maybeSingle()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+  const { data: companies } = await sb.from("Company")
+    .select("id, name")
+    .eq("id", u.companyId)
+    .limit(1)
+
+  return NextResponse.json({ ...data, company: companies?.[0] ?? null })
 }
