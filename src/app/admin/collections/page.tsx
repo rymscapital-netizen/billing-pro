@@ -181,10 +181,10 @@ export default function AdminCollectionsPage() {
             <thead>
               <tr>
                 <th>入金元</th>
-                <th className="text-right">予定額</th>
-                <th className="text-right">確認済</th>
-                <th className="text-right">未着金</th>
-                <th className="text-right">件数</th>
+                <th style={{ textAlign: "right" }}>予定額</th>
+                <th style={{ textAlign: "right" }}>確認済</th>
+                <th style={{ textAlign: "right" }}>未着金</th>
+                <th style={{ textAlign: "right" }}>件数</th>
               </tr>
             </thead>
             <tbody>
@@ -229,7 +229,7 @@ export default function AdminCollectionsPage() {
                       <th>支払期限</th>
                       <th>請求書番号</th>
                       <th>件名</th>
-                      <th className="text-right">金額</th>
+                      <th style={{ textAlign: "right" }}>金額</th>
                       <th>状態</th>
                     </tr>
                   </thead>
