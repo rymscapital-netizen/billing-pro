@@ -35,6 +35,7 @@ type ProfitGroup = {
 }
 
 type ProfitData = {
+  users: { id: string; name: string }[]
   totals: Omit<ProfitGroup, "userId" | "userName" | "items">
   groups: ProfitGroup[]
 }
@@ -113,6 +114,7 @@ export default function AdminProfitsPage() {
       const body = await res.json().catch(() => null)
       if (!res.ok) throw new Error(body?.error ?? "担当者別利益の取得に失敗しました")
       setData(body)
+      setUsers(body?.users ?? [])
     } catch (error: any) {
       showToast(error?.message ?? "担当者別利益の取得に失敗しました", false)
       setData(null)
@@ -124,13 +126,6 @@ export default function AdminProfitsPage() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
-
-  useEffect(() => {
-    fetch("/api/users")
-      .then(res => res.ok ? res.json() : [])
-      .then((rows: any[]) => setUsers(rows.map(row => ({ id: row.id, name: row.name }))))
-      .catch(() => setUsers([]))
-  }, [])
 
   const groups = useMemo(() => data?.groups ?? [], [data])
   const estimatedTotalCommission = data ? data.totals.grossProfit * (commissionRate / 100) : 0

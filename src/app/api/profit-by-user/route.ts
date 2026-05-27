@@ -112,8 +112,19 @@ export async function GET(req: NextRequest) {
 
     if (assignedUserId) query = query.eq("assignedUserId", assignedUserId)
 
-    const { data, error } = await query
+    const [
+      { data, error },
+      { data: userRows, error: userError },
+    ] = await Promise.all([
+      query,
+      sb.from("User")
+        .select("id, name")
+        .eq("companyId", session.user.companyId)
+        .eq("isActive", true)
+        .order("name", { ascending: true }),
+    ])
     if (error) throw new Error(error.message)
+    if (userError) throw new Error(userError.message)
 
     const groups = groupInvoices(data ?? [])
     const totals = groups.reduce((sum, group) => ({
@@ -138,6 +149,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       month: yearMonth,
+      users: userRows ?? [],
       totals: {
         ...totals,
         profitRate: totals.sales > 0 ? (totals.grossProfit / totals.sales) * 100 : 0,
