@@ -9,6 +9,10 @@ function getSupabase() {
   )
 }
 
+function canViewAllProfitUsers(user: any) {
+  return String(user?.name ?? "").includes("\u6d6a\u7530")
+}
+
 function parseMonth(value: string | null) {
   const now = new Date(Date.now() + 9 * 60 * 60 * 1000)
   const fallback = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`
@@ -208,7 +212,11 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const { yearMonth, start, endExclusive } = parseMonth(searchParams.get("yearMonth"))
-    const assignedUserId = searchParams.get("assignedUserId")
+    const requestedAssignedUserId = searchParams.get("assignedUserId")
+    const canViewAllUsers = canViewAllProfitUsers(session.user)
+    const effectiveAssignedUserId = canViewAllUsers
+      ? requestedAssignedUserId
+      : session.user.id
     const sb = getSupabase()
     const fiscalMonths = buildFiscalMonths(yearMonth)
     const fiscalStart = toDbMonthStart(fiscalMonths[0].getFullYear(), fiscalMonths[0].getMonth())
@@ -231,9 +239,20 @@ export async function GET(req: NextRequest) {
       .lt("dueDate", fiscalEndExclusive)
       .order("dueDate", { ascending: false })
 
-    if (assignedUserId) {
-      query = query.eq("assignedUserId", assignedUserId)
-      historyQuery = historyQuery.eq("assignedUserId", assignedUserId)
+    if (effectiveAssignedUserId) {
+      query = query.eq("assignedUserId", effectiveAssignedUserId)
+      historyQuery = historyQuery.eq("assignedUserId", effectiveAssignedUserId)
+    }
+
+    let usersQuery: any = sb.from("User")
+      .select("id, name, commissionRate")
+      .eq("companyId", session.user.companyId)
+      .eq("isActive", true)
+      .eq("role", "ADMIN")
+      .order("name", { ascending: true })
+
+    if (!canViewAllUsers) {
+      usersQuery = usersQuery.eq("id", session.user.id)
     }
 
     const [
@@ -243,11 +262,7 @@ export async function GET(req: NextRequest) {
     ] = await Promise.all([
       query,
       historyQuery,
-      sb.from("User")
-        .select("id, name, commissionRate")
-        .eq("companyId", session.user.companyId)
-        .eq("isActive", true)
-        .order("name", { ascending: true }),
+      usersQuery,
     ])
     if (error) throw new Error(error.message)
     if (historyError) throw new Error(historyError.message)
@@ -259,6 +274,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       month: yearMonth,
       users: userRows ?? [],
+      canViewAllUsers,
       totals,
       groups,
       fiscalYear: {

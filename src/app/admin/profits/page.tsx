@@ -80,6 +80,7 @@ type ProfitTotals = {
 
 type ProfitData = {
   users: { id: string; name: string; commissionRate: number }[]
+  canViewAllUsers: boolean
   totals: ProfitTotals
   groups: ProfitGroup[]
   history: ProfitHistory[]
@@ -258,6 +259,8 @@ export default function AdminProfitsPage() {
   }, [fetchData])
 
   const groups = useMemo(() => data?.groups ?? [], [data])
+  const canViewAllUsers = data?.canViewAllUsers ?? true
+  const currentUserName = users[0]?.name ?? ""
   const chartData = useMemo(() => (data?.history ?? []).map(row => ({
     month: row.label,
     sales: row.sales,
@@ -290,6 +293,7 @@ export default function AdminProfitsPage() {
             onChange={event => setYearMonth(event.target.value)}
             className="form-input w-[150px]"
           />
+          {canViewAllUsers ? (
           <select
             value={assignedUserId}
             onChange={event => setAssignedUserId(event.target.value)}
@@ -300,6 +304,11 @@ export default function AdminProfitsPage() {
               <option key={user.id} value={user.id}>{user.name}</option>
             ))}
           </select>
+          ) : (
+            <div className="form-input w-[150px] bg-navy-50 text-navy-600 flex items-center">
+              {currentUserName || "自分の担当分"}
+            </div>
+          )}
           <button className="btn bg-white" onClick={fetchData} disabled={loading}>
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             更新
