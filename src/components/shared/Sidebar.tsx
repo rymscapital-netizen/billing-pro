@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   FileText,
   Building2,
+  Landmark,
   Settings,
   Link2,
   UserPlus,
@@ -20,6 +21,7 @@ interface NavItem {
 const adminNav: NavItem[] = [
   { label: "ダッシュボード", href: "/admin/dashboard",     icon: <LayoutDashboard size={14} /> },
   { label: "請求書一覧",    href: "/admin/invoices",       icon: <FileText size={14} />, dot: true },
+  { label: "支払予定",      href: "/admin/payments",       icon: <Landmark size={14} /> },
   { label: "取引先管理",    href: "/admin/companies",      icon: <Building2 size={14} /> },
   { label: "取引先連携",    href: "/admin/connections",    icon: <Link2 size={14} /> },
   { label: "取引先招待",  href: "/admin/invites",        icon: <UserPlus size={14} /> },
