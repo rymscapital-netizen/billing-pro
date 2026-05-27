@@ -2,7 +2,18 @@
 
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import dynamic from "next/dynamic"
 import { Calculator, CheckCircle2, Percent, RefreshCw, TrendingUp, Wallet } from "lucide-react"
+
+const Bar = dynamic(() => import("recharts").then(m => m.Bar), { ssr: false })
+const CartesianGrid = dynamic(() => import("recharts").then(m => m.CartesianGrid), { ssr: false })
+const ComposedChart = dynamic(() => import("recharts").then(m => m.ComposedChart), { ssr: false })
+const Legend = dynamic(() => import("recharts").then(m => m.Legend), { ssr: false })
+const Line = dynamic(() => import("recharts").then(m => m.Line), { ssr: false })
+const ResponsiveContainer = dynamic(() => import("recharts").then(m => m.ResponsiveContainer), { ssr: false })
+const Tooltip = dynamic(() => import("recharts").then(m => m.Tooltip), { ssr: false })
+const XAxis = dynamic(() => import("recharts").then(m => m.XAxis), { ssr: false })
+const YAxis = dynamic(() => import("recharts").then(m => m.YAxis), { ssr: false })
 
 type ProfitItem = {
   id: string
@@ -35,13 +46,36 @@ type ProfitGroup = {
   items: ProfitItem[]
 }
 
+type ProfitHistory = {
+  month: string
+  label: string
+  sales: number
+  cost: number
+  grossProfit: number
+  amount: number
+  confirmedAmount: number
+  unconfirmedAmount: number
+  invoiceCount: number
+  missingProfitCount: number
+  profitRate: number
+}
+
 type ProfitData = {
   users: { id: string; name: string }[]
   totals: Omit<ProfitGroup, "userId" | "userName" | "items">
   groups: ProfitGroup[]
+  history: ProfitHistory[]
 }
 
 const yen = (value: number) => `¥${Math.round(Number(value ?? 0)).toLocaleString("ja-JP")}`
+const yenShort = (value: number) => {
+  const number = Math.round(Number(value ?? 0))
+  const sign = number < 0 ? "-" : ""
+  const absolute = Math.abs(number)
+  if (absolute >= 100_000_000) return `${sign}¥${(absolute / 100_000_000).toFixed(1)}億`
+  if (absolute >= 10_000) return `${sign}¥${Math.round(absolute / 10_000).toLocaleString("ja-JP")}万`
+  return `${sign}¥${absolute.toLocaleString("ja-JP")}`
+}
 const pct = (value: number) => `${Number(value ?? 0).toFixed(1)}%`
 const date = (value: string) => new Date(value).toLocaleDateString("ja-JP")
 const currentMonth = () => {
@@ -198,6 +232,13 @@ export default function AdminProfitsPage() {
 
   const groups = useMemo(() => data?.groups ?? [], [data])
   const estimatedTotalCommission = data ? data.totals.grossProfit * (commissionRate / 100) : 0
+  const chartData = useMemo(() => (data?.history ?? []).map(row => ({
+    month: row.label,
+    sales: row.sales,
+    grossProfit: row.grossProfit,
+    commission: row.grossProfit * (commissionRate / 100),
+  })), [data, commissionRate])
+  const hasHistory = chartData.some(row => row.sales !== 0 || row.grossProfit !== 0 || row.commission !== 0)
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -288,6 +329,39 @@ export default function AdminProfitsPage() {
             tone="green"
             icon={<CheckCircle2 size={18} />}
           />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-[15px] font-semibold text-navy-900">過去12か月の成績</h2>
+            <p className="text-[12px] text-navy-400 mt-1">入金期限ベースで、売上・粗利・概算歩合の推移を確認できます。</p>
+          </div>
+          <p className="text-[12px] text-navy-400">{assignedUserId ? "選択中の担当者のみ" : "全担当者"}</p>
+        </div>
+        <div className="card p-4">
+          {loading ? (
+            <div className="h-[300px] flex items-center justify-center text-[13px] text-navy-400">読み込み中...</div>
+          ) : hasHistory ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <ComposedChart data={chartData} margin={{ top: 8, right: 18, left: 10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e4eaf4" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#58709d" }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={yenShort} tick={{ fontSize: 11, fill: "#58709d" }} axisLine={false} tickLine={false} width={70} />
+                <Tooltip
+                  formatter={(value: number, name: string) => [yen(value), name]}
+                  contentStyle={{ fontSize: "12px", borderRadius: "8px", border: "1px solid #dbe4f3" }}
+                />
+                <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "12px" }} />
+                <Bar dataKey="sales" name="売上" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="grossProfit" name="粗利" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Line dataKey="commission" name="概算歩合" type="monotone" stroke="#c49828" strokeWidth={2.5} dot={{ r: 3 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-[13px] text-navy-400">過去12か月の成績データはありません。</div>
+          )}
         </div>
       </section>
 

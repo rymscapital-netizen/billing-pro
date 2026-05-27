@@ -108,6 +108,70 @@ function groupDueInvoices(rows: any[]) {
   return sortGroups(groups)
 }
 
+function buildTotals(sourceGroups: any[]) {
+  const totals = sourceGroups.reduce((sum, group) => ({
+    sales: sum.sales + group.sales,
+    cost: sum.cost + group.cost,
+    grossProfit: sum.grossProfit + group.grossProfit,
+    amount: sum.amount + group.amount,
+    confirmedAmount: sum.confirmedAmount + group.confirmedAmount,
+    unconfirmedAmount: sum.unconfirmedAmount + group.unconfirmedAmount,
+    invoiceCount: sum.invoiceCount + group.invoiceCount,
+    missingProfitCount: sum.missingProfitCount + group.missingProfitCount,
+  }), {
+    sales: 0,
+    cost: 0,
+    grossProfit: 0,
+    amount: 0,
+    confirmedAmount: 0,
+    unconfirmedAmount: 0,
+    invoiceCount: 0,
+    missingProfitCount: 0,
+  })
+
+  return {
+    ...totals,
+    profitRate: totals.sales > 0 ? (totals.grossProfit / totals.sales) * 100 : 0,
+  }
+}
+
+function formatYearMonth(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+}
+
+function buildHistory(rows: any[], selectedYearMonth: string) {
+  const [year, month] = selectedYearMonth.split("-").map(Number)
+  const monthStarts = Array.from({ length: 12 }, (_, index) => new Date(year, month - 12 + index, 1))
+  const rowsByMonth = new Map<string, any[]>()
+
+  for (const row of rows) {
+    if (!row.dueDate) continue
+    const key = formatYearMonth(new Date(row.dueDate))
+    const current = rowsByMonth.get(key) ?? []
+    current.push(row)
+    rowsByMonth.set(key, current)
+  }
+
+  return monthStarts.map(monthStart => {
+    const key = formatYearMonth(monthStart)
+    const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? []))
+
+    return {
+      month: key,
+      label: `${monthStart.getFullYear()}/${String(monthStart.getMonth() + 1).padStart(2, "0")}`,
+      sales: totals.sales,
+      cost: totals.cost,
+      grossProfit: totals.grossProfit,
+      amount: totals.amount,
+      confirmedAmount: totals.confirmedAmount,
+      unconfirmedAmount: totals.unconfirmedAmount,
+      invoiceCount: totals.invoiceCount,
+      missingProfitCount: totals.missingProfitCount,
+      profitRate: totals.profitRate,
+    }
+  })
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await auth()
@@ -118,6 +182,8 @@ export async function GET(req: NextRequest) {
     const { yearMonth, start, end } = parseMonth(searchParams.get("yearMonth"))
     const assignedUserId = searchParams.get("assignedUserId")
     const sb = getSupabase()
+    const [selectedYear, selectedMonth] = yearMonth.split("-").map(Number)
+    const historyStart = new Date(selectedYear, selectedMonth - 12, 1)
 
     let query: any = sb.from("Invoice")
       .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
@@ -127,15 +193,26 @@ export async function GET(req: NextRequest) {
       .lte("dueDate", end.toISOString())
       .order("dueDate", { ascending: false })
 
+    let historyQuery: any = sb.from("Invoice")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .eq("issuerCompanyId", session.user.companyId)
+      .neq("status", "DRAFT")
+      .gte("dueDate", historyStart.toISOString())
+      .lte("dueDate", end.toISOString())
+      .order("dueDate", { ascending: false })
+
     if (assignedUserId) {
       query = query.eq("assignedUserId", assignedUserId)
+      historyQuery = historyQuery.eq("assignedUserId", assignedUserId)
     }
 
     const [
       { data, error },
+      { data: historyRows, error: historyError },
       { data: userRows, error: userError },
     ] = await Promise.all([
       query,
+      historyQuery,
       sb.from("User")
         .select("id, name")
         .eq("companyId", session.user.companyId)
@@ -143,38 +220,18 @@ export async function GET(req: NextRequest) {
         .order("name", { ascending: true }),
     ])
     if (error) throw new Error(error.message)
+    if (historyError) throw new Error(historyError.message)
     if (userError) throw new Error(userError.message)
 
     const groups = groupDueInvoices(data ?? [])
-    const buildTotals = (sourceGroups: any[]) => sourceGroups.reduce((sum, group) => ({
-      sales: sum.sales + group.sales,
-      cost: sum.cost + group.cost,
-      grossProfit: sum.grossProfit + group.grossProfit,
-      amount: sum.amount + group.amount,
-      confirmedAmount: sum.confirmedAmount + group.confirmedAmount,
-      unconfirmedAmount: sum.unconfirmedAmount + group.unconfirmedAmount,
-      invoiceCount: sum.invoiceCount + group.invoiceCount,
-      missingProfitCount: sum.missingProfitCount + group.missingProfitCount,
-    }), {
-      sales: 0,
-      cost: 0,
-      grossProfit: 0,
-      amount: 0,
-      confirmedAmount: 0,
-      unconfirmedAmount: 0,
-      invoiceCount: 0,
-      missingProfitCount: 0,
-    })
     const totals = buildTotals(groups)
 
     return NextResponse.json({
       month: yearMonth,
       users: userRows ?? [],
-      totals: {
-        ...totals,
-        profitRate: totals.sales > 0 ? (totals.grossProfit / totals.sales) * 100 : 0,
-      },
+      totals,
       groups,
+      history: buildHistory(historyRows ?? [], yearMonth),
     })
   } catch (e: any) {
     console.error("[profit-by-user ERROR]", e?.message ?? e)
