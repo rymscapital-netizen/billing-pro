@@ -93,6 +93,8 @@ function StatusPill({ status }: { status: string }) {
 export default function AdminProfitsPage() {
   const [yearMonth, setYearMonth] = useState(currentMonth)
   const [commissionRate, setCommissionRate] = useState(10)
+  const [assignedUserId, setAssignedUserId] = useState("")
+  const [users, setUsers] = useState<{ id: string; name: string }[]>([])
   const [data, setData] = useState<ProfitData | null>(null)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
@@ -105,7 +107,9 @@ export default function AdminProfitsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/profit-by-user?yearMonth=${encodeURIComponent(yearMonth)}`)
+      const params = new URLSearchParams({ yearMonth })
+      if (assignedUserId) params.set("assignedUserId", assignedUserId)
+      const res = await fetch(`/api/profit-by-user?${params.toString()}`)
       const body = await res.json().catch(() => null)
       if (!res.ok) throw new Error(body?.error ?? "担当者別利益の取得に失敗しました")
       setData(body)
@@ -115,11 +119,18 @@ export default function AdminProfitsPage() {
     } finally {
       setLoading(false)
     }
-  }, [yearMonth])
+  }, [yearMonth, assignedUserId])
 
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  useEffect(() => {
+    fetch("/api/users")
+      .then(res => res.ok ? res.json() : [])
+      .then((rows: any[]) => setUsers(rows.map(row => ({ id: row.id, name: row.name }))))
+      .catch(() => setUsers([]))
+  }, [])
 
   const groups = useMemo(() => data?.groups ?? [], [data])
   const estimatedTotalCommission = data ? data.totals.grossProfit * (commissionRate / 100) : 0
@@ -148,6 +159,16 @@ export default function AdminProfitsPage() {
             onChange={event => setYearMonth(event.target.value)}
             className="form-input w-[150px]"
           />
+          <select
+            value={assignedUserId}
+            onChange={event => setAssignedUserId(event.target.value)}
+            className="form-input w-[150px]"
+          >
+            <option value="">担当者: 全員</option>
+            {users.map(user => (
+              <option key={user.id} value={user.id}>{user.name}</option>
+            ))}
+          </select>
           <div className="flex items-center gap-1 bg-white border border-navy-200 rounded-lg px-3 py-2">
             <Percent size={14} className="text-navy-400" />
             <input
