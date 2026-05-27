@@ -11,6 +11,7 @@ type ProfitItem = {
   subject: string
   issueDate: string
   dueDate: string
+  paymentDate: string
   sales: number
   cost: number
   grossProfit: number
@@ -144,7 +145,7 @@ export default function AdminProfitsPage() {
         <div>
           <h1 className="text-[22px] font-semibold text-navy-900">担当者別利益</h1>
           <p className="text-[13px] text-navy-400 mt-1">
-            請求日ベースで担当者ごとの売上・原価・粗利・概算歩合を確認できます。
+            着金日ベースで担当者ごとの売上・原価・粗利・概算歩合を確認できます。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -286,7 +287,7 @@ export default function AdminProfitsPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>請求日</th>
+                      <th>着金日</th>
                       <th>請求書番号</th>
                       <th>取引先</th>
                       <th>件名</th>
@@ -299,7 +300,7 @@ export default function AdminProfitsPage() {
                   <tbody>
                     {group.items.map(item => (
                       <tr key={item.id}>
-                        <td className="tabular-nums whitespace-nowrap">{date(item.issueDate)}</td>
+                        <td className="tabular-nums whitespace-nowrap">{date(item.paymentDate)}</td>
                         <td>
                           <Link href={`/admin/invoices/${item.id}`} className="font-mono text-[11px] text-blue-700 hover:underline">
                             {item.invoiceNumber}

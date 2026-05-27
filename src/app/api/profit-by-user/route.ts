@@ -21,26 +21,23 @@ function parseMonth(value: string | null) {
 
 const toNumber = (value: unknown) => Number(value ?? 0)
 
-function groupInvoices(rows: any[]) {
+function groupPayments(rows: any[]) {
   const groups = new Map<string, any>()
 
-  for (const row of rows) {
+  for (const paymentRow of rows) {
+    const row = Array.isArray(paymentRow.invoice) ? paymentRow.invoice[0] : paymentRow.invoice
+    if (!row) continue
+
     const assignedUser = Array.isArray(row.assignedUser) ? row.assignedUser[0] : row.assignedUser
     const company = Array.isArray(row.company) ? row.company[0] : row.company
     const profit = Array.isArray(row.profit) ? row.profit[0] : row.profit
-    const payments = Array.isArray(row.payments) ? row.payments : []
-
     const userId = assignedUser?.id ?? "unassigned"
     const userName = assignedUser?.name ?? "未設定"
     const sales = profit ? toNumber(profit.sales) : toNumber(row.subtotal)
     const cost = profit ? toNumber(profit.cost) : 0
     const grossProfit = profit ? toNumber(profit.grossProfit) : sales - cost
     const amount = toNumber(row.amount)
-    const confirmedAmount = ["PAYMENT_CONFIRMED", "CLEARED"].includes(row.status)
-      ? amount
-      : payments
-          .filter((payment: any) => payment.paymentStatus === "CONFIRMED")
-          .reduce((sum: number, payment: any) => sum + toNumber(payment.paymentAmount), 0)
+    const confirmedAmount = toNumber(paymentRow.paymentAmount ?? amount)
 
     const current = groups.get(userId) ?? {
       userId,
@@ -71,6 +68,7 @@ function groupInvoices(rows: any[]) {
       subject: row.subject,
       issueDate: row.issueDate,
       dueDate: row.dueDate,
+      paymentDate: paymentRow.paymentDate,
       sales,
       cost,
       grossProfit,
@@ -86,7 +84,7 @@ function groupInvoices(rows: any[]) {
     .map(group => ({
       ...group,
       profitRate: group.sales > 0 ? (group.grossProfit / group.sales) * 100 : 0,
-      items: group.items.sort((a: any, b: any) => String(b.issueDate).localeCompare(String(a.issueDate))),
+      items: group.items.sort((a: any, b: any) => String(b.paymentDate).localeCompare(String(a.paymentDate))),
     }))
     .sort((a, b) => b.grossProfit - a.grossProfit)
 }
@@ -102,15 +100,16 @@ export async function GET(req: NextRequest) {
     const assignedUserId = searchParams.get("assignedUserId")
     const sb = getSupabase()
 
-    let query = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
-      .eq("issuerCompanyId", session.user.companyId)
-      .neq("status", "DRAFT")
-      .gte("issueDate", start.toISOString())
-      .lte("issueDate", end.toISOString())
-      .order("issueDate", { ascending: false })
+    let query = sb.from("InvoicePayment")
+      .select("paymentDate, paymentAmount, invoice:Invoice!inner(id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, issuerCompanyId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*))")
+      .eq("paymentStatus", "CONFIRMED")
+      .eq("invoice.issuerCompanyId", session.user.companyId)
+      .neq("invoice.status", "DRAFT")
+      .gte("paymentDate", start.toISOString())
+      .lte("paymentDate", end.toISOString())
+      .order("paymentDate", { ascending: false })
 
-    if (assignedUserId) query = query.eq("assignedUserId", assignedUserId)
+    if (assignedUserId) query = query.eq("invoice.assignedUserId", assignedUserId)
 
     const [
       { data, error },
@@ -126,7 +125,7 @@ export async function GET(req: NextRequest) {
     if (error) throw new Error(error.message)
     if (userError) throw new Error(userError.message)
 
-    const groups = groupInvoices(data ?? [])
+    const groups = groupPayments(data ?? [])
     const totals = groups.reduce((sum, group) => ({
       sales: sum.sales + group.sales,
       cost: sum.cost + group.cost,
