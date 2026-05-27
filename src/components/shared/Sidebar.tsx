@@ -12,6 +12,7 @@ import {
   Link2,
   UserPlus,
 } from "lucide-react"
+import { isSooEstateCompanyName } from "@/lib/internal-access"
 
 interface NavItem {
   label: string
@@ -48,7 +49,13 @@ interface SidebarProps {
 
 export function Sidebar({ role, userName, companyName }: SidebarProps) {
   const pathname = usePathname()
-  const navItems = role === "ADMIN" ? adminNav : clientNav
+  const canViewInternalReports = role === "ADMIN" && isSooEstateCompanyName(companyName)
+  const navItems = (role === "ADMIN" ? adminNav : clientNav).filter(item => {
+    if (["/admin/payments", "/admin/collections", "/admin/profits"].includes(item.href)) {
+      return canViewInternalReports
+    }
+    return true
+  })
   return (
     <aside className="w-[214px] bg-navy-900 flex flex-col flex-shrink-0 h-screen sticky top-0">
       <div className="px-5 pt-6 pb-5 border-b border-white/[0.07]">

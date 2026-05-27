@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth"
+import { canViewInternalReports } from "@/lib/internal-access"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 
@@ -208,7 +209,7 @@ export async function GET(req: NextRequest) {
   try {
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.role !== "ADMIN") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!canViewInternalReports(session.user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     const { searchParams } = new URL(req.url)
     const { yearMonth, start, endExclusive } = parseMonth(searchParams.get("yearMonth"))
