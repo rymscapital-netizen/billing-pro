@@ -11,7 +11,7 @@ type ProfitItem = {
   subject: string
   issueDate: string
   dueDate: string
-  paymentDate: string
+  paymentDate: string | null
   sales: number
   cost: number
   grossProfit: number
@@ -94,6 +94,7 @@ function StatusPill({ status }: { status: string }) {
 
 export default function AdminProfitsPage() {
   const [yearMonth, setYearMonth] = useState(currentMonth)
+  const [basis, setBasis] = useState<"payment" | "due">("payment")
   const [commissionRate, setCommissionRate] = useState(10)
   const [assignedUserId, setAssignedUserId] = useState("")
   const [users, setUsers] = useState<{ id: string; name: string }[]>([])
@@ -110,6 +111,7 @@ export default function AdminProfitsPage() {
     setLoading(true)
     try {
       const params = new URLSearchParams({ yearMonth })
+      params.set("basis", basis)
       if (assignedUserId) params.set("assignedUserId", assignedUserId)
       const res = await fetch(`/api/profit-by-user?${params.toString()}`)
       const body = await res.json().catch(() => null)
@@ -122,7 +124,7 @@ export default function AdminProfitsPage() {
     } finally {
       setLoading(false)
     }
-  }, [yearMonth, assignedUserId])
+  }, [yearMonth, basis, assignedUserId])
 
   useEffect(() => {
     fetchData()
@@ -145,7 +147,7 @@ export default function AdminProfitsPage() {
         <div>
           <h1 className="text-[22px] font-semibold text-navy-900">担当者別利益</h1>
           <p className="text-[13px] text-navy-400 mt-1">
-            着金日ベースで担当者ごとの売上・原価・粗利・概算歩合を確認できます。
+            着金日または入金期限で、担当者ごとの売上・原価・粗利・概算歩合を確認できます。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -155,6 +157,14 @@ export default function AdminProfitsPage() {
             onChange={event => setYearMonth(event.target.value)}
             className="form-input w-[150px]"
           />
+          <select
+            value={basis}
+            onChange={event => setBasis(event.target.value as "payment" | "due")}
+            className="form-input w-[150px]"
+          >
+            <option value="payment">着金日ベース</option>
+            <option value="due">入金期限ベース</option>
+          </select>
           <select
             value={assignedUserId}
             onChange={event => setAssignedUserId(event.target.value)}
@@ -214,7 +224,7 @@ export default function AdminProfitsPage() {
             icon={<Calculator size={18} />}
           />
           <SummaryCard
-            label="着金確認済"
+            label={basis === "payment" ? "着金確認済" : "着金済"}
             value={data ? yen(data.totals.confirmedAmount) : "..."}
             note={data ? `未着金 ${yen(data.totals.unconfirmedAmount)}` : undefined}
             tone="green"
@@ -287,7 +297,7 @@ export default function AdminProfitsPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>着金日</th>
+                      <th>{basis === "payment" ? "着金日" : "入金期限"}</th>
                       <th>請求書番号</th>
                       <th>取引先</th>
                       <th>件名</th>
@@ -300,7 +310,7 @@ export default function AdminProfitsPage() {
                   <tbody>
                     {group.items.map(item => (
                       <tr key={item.id}>
-                        <td className="tabular-nums whitespace-nowrap">{date(item.paymentDate)}</td>
+                        <td className="tabular-nums whitespace-nowrap">{item.paymentDate ? date(item.paymentDate) : "-"}</td>
                         <td>
                           <Link href={`/admin/invoices/${item.id}`} className="font-mono text-[11px] text-blue-700 hover:underline">
                             {item.invoiceNumber}
