@@ -10,13 +10,13 @@ function getSupabase() {
 }
 
 function parseMonth(value: string | null) {
-  const now = new Date()
-  const fallback = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  const fallback = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`
   const yearMonth = /^\d{4}-\d{2}$/.test(value ?? "") ? value! : fallback
   const [year, month] = yearMonth.split("-").map(Number)
-  const start = new Date(year, month - 1, 1)
-  const end = new Date(year, month, 0, 23, 59, 59, 999)
-  return { yearMonth, start, end }
+  const start = new Date(Date.UTC(year, month - 1, 1) - 9 * 60 * 60 * 1000)
+  const endExclusive = new Date(Date.UTC(year, month, 1) - 9 * 60 * 60 * 1000)
+  return { yearMonth, start, endExclusive }
 }
 
 const toNumber = (value: unknown) => Number(value ?? 0)
@@ -139,6 +139,12 @@ function formatYearMonth(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
 }
 
+function formatJstYearMonth(value: string) {
+  const date = new Date(value)
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000)
+  return `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2, "0")}`
+}
+
 function buildHistory(rows: any[], selectedYearMonth: string) {
   const [year, month] = selectedYearMonth.split("-").map(Number)
   const monthStarts = Array.from({ length: 12 }, (_, index) => new Date(year, month - 12 + index, 1))
@@ -146,7 +152,7 @@ function buildHistory(rows: any[], selectedYearMonth: string) {
 
   for (const row of rows) {
     if (!row.dueDate) continue
-    const key = formatYearMonth(new Date(row.dueDate))
+    const key = formatJstYearMonth(row.dueDate)
     const current = rowsByMonth.get(key) ?? []
     current.push(row)
     rowsByMonth.set(key, current)
@@ -179,18 +185,18 @@ export async function GET(req: NextRequest) {
     if (session.user.role !== "ADMIN") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     const { searchParams } = new URL(req.url)
-    const { yearMonth, start, end } = parseMonth(searchParams.get("yearMonth"))
+    const { yearMonth, start, endExclusive } = parseMonth(searchParams.get("yearMonth"))
     const assignedUserId = searchParams.get("assignedUserId")
     const sb = getSupabase()
     const [selectedYear, selectedMonth] = yearMonth.split("-").map(Number)
-    const historyStart = new Date(selectedYear, selectedMonth - 12, 1)
+    const historyStart = new Date(Date.UTC(selectedYear, selectedMonth - 12, 1) - 9 * 60 * 60 * 1000)
 
     let query: any = sb.from("Invoice")
       .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", start.toISOString())
-      .lte("dueDate", end.toISOString())
+      .lt("dueDate", endExclusive.toISOString())
       .order("dueDate", { ascending: false })
 
     let historyQuery: any = sb.from("Invoice")
@@ -198,7 +204,7 @@ export async function GET(req: NextRequest) {
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", historyStart.toISOString())
-      .lte("dueDate", end.toISOString())
+      .lt("dueDate", endExclusive.toISOString())
       .order("dueDate", { ascending: false })
 
     if (assignedUserId) {
