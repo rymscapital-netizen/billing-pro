@@ -409,6 +409,24 @@ export default function AdminProfitsPage() {
   const hasHistory = chartData.some(row => row.sales !== 0 || row.grossProfit !== 0 || row.commission !== 0 || row.retainedProfit !== 0)
   const officeRentStartMonth = data?.officeRentStartDate ? String(data.officeRentStartDate).slice(0, 7) : ""
   const hasAutomaticOfficeRent = (data?.officeRent ?? 0) > 0
+  const targetSummary = useMemo(() => {
+    const summary = groups.reduce((sum, group) => {
+      const variableRate = Number(group.targetVariableRate ?? 0) / 100
+      const annualTarget = Number(group.annualGrossProfitTarget ?? 0)
+      const annualFixedExpense = Number(group.targetFixedExpense ?? 0) * 12
+      const retainedAtTarget = annualTarget * Math.max(1 - variableRate, 0) - annualFixedExpense
+      return {
+        monthlyTarget: sum.monthlyTarget + Number(group.monthlyGrossProfitTarget ?? 0),
+        annualTarget: sum.annualTarget + annualTarget,
+        retainedAtTarget: sum.retainedAtTarget + retainedAtTarget,
+      }
+    }, { monthlyTarget: 0, annualTarget: 0, retainedAtTarget: 0 })
+    const currentFiscalGrossProfit = data?.fiscalSummary.grossProfit ?? 0
+    return {
+      ...summary,
+      annualGap: Math.max(summary.annualTarget - currentFiscalGrossProfit, 0),
+    }
+  }, [groups, data])
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -504,6 +522,50 @@ export default function AdminProfitsPage() {
             note={data ? `預り ${yen(data.fiscalSummary.salesTax)} - 支払 ${yen(data.fiscalSummary.purchaseTax)}` : undefined}
             tone={data && data.fiscalSummary.consumptionTaxBalance >= 0 ? "navy" : "blue"}
             icon={<CheckCircle2 size={18} />}
+          />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-[15px] font-semibold text-navy-900">目標</h2>
+            <p className="text-[12px] text-navy-400 mt-1">
+              固定費・支払歩合・歩合率・法人実効税率から、必要な粗利を逆算しています。
+            </p>
+          </div>
+          <p className="text-[12px] text-navy-400">
+            {assignedUserId ? "選択中の担当者のみ" : "全担当者"}
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <SummaryCard
+            label="月次必要粗利"
+            value={data ? yen(targetSummary.monthlyTarget) : "..."}
+            note="毎月の損益分岐ライン"
+            tone="blue"
+            icon={<Calculator size={18} />}
+          />
+          <SummaryCard
+            label="年間目標"
+            value={data ? yen(targetSummary.annualTarget) : "..."}
+            note="月次必要粗利 × 12か月"
+            tone="navy"
+            icon={<TrendingUp size={18} />}
+          />
+          <SummaryCard
+            label="達成時に残る利益"
+            value={data ? yen(targetSummary.retainedAtTarget) : "..."}
+            note="目標は損益分岐ベース"
+            tone={targetSummary.retainedAtTarget >= 0 ? "green" : "amber"}
+            icon={<CheckCircle2 size={18} />}
+          />
+          <SummaryCard
+            label="年間目標まで"
+            value={data ? yen(targetSummary.annualGap) : "..."}
+            note={data ? `現在の累計粗利 ${yen(data.fiscalSummary.grossProfit)}` : undefined}
+            tone="amber"
+            icon={<Wallet size={18} />}
           />
         </div>
       </section>
