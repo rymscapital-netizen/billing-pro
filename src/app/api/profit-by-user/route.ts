@@ -26,6 +26,35 @@ function parseMonth(value: string | null) {
 
 const toNumber = (value: unknown) => Number(value ?? 0)
 
+const expenseFields = [
+  "baseSalary",
+  "socialInsurance",
+  "rentAllocation",
+  "paidCommission",
+  "travelExpense",
+  "corporateTax",
+  "communicationCost",
+  "welfareExpense",
+  "suppliesExpense",
+  "otherExpense",
+] as const
+
+function calculateExpenseTotal(expense: any) {
+  return expenseFields.reduce((sum, field) => sum + toNumber(expense?.[field]), 0)
+}
+
+function normalizeExpense(expense: any) {
+  const normalized: Record<string, any> = {
+    id: expense?.id ?? null,
+    userId: expense?.userId ?? null,
+    yearMonth: expense?.yearMonth ?? null,
+    otherMemo: expense?.otherMemo ?? "",
+  }
+  for (const field of expenseFields) normalized[field] = toNumber(expense?.[field])
+  normalized.totalExpense = calculateExpenseTotal(expense)
+  return normalized
+}
+
 function toDbMonthStart(year: number, monthIndex: number) {
   const date = new Date(year, monthIndex, 1)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01T00:00:00`
@@ -95,17 +124,60 @@ function addInvoiceToGroups(
   groups.set(userId, current)
 }
 
-function sortGroups(groups: Map<string, any>) {
+function applyExpensesToGroups(groups: any[], expensesByUserId: Map<string, any>) {
+  return groups.map(group => {
+    const expense = normalizeExpense(expensesByUserId.get(group.userId))
+    return {
+      ...group,
+      expenses: expense,
+      totalExpense: expense.totalExpense,
+      retainedProfit: group.grossProfit - expense.totalExpense,
+    }
+  })
+}
+
+function addExpenseOnlyGroups(groups: any[], users: any[], expensesByUserId: Map<string, any>) {
+  const existingUserIds = new Set(groups.map(group => group.userId))
+  const additionalGroups = users
+    .filter(user => expensesByUserId.has(user.id) && !existingUserIds.has(user.id))
+    .map(user => {
+      const expense = normalizeExpense(expensesByUserId.get(user.id))
+      return {
+        userId: user.id,
+        userName: user.name,
+        commissionRate: toNumber(user.commissionRate),
+        sales: 0,
+        cost: 0,
+        grossProfit: 0,
+        commissionAmount: 0,
+        amount: 0,
+        confirmedAmount: 0,
+        unconfirmedAmount: 0,
+        invoiceCount: 0,
+        missingProfitCount: 0,
+        profitRate: 0,
+        items: [],
+        expenses: expense,
+        totalExpense: expense.totalExpense,
+        retainedProfit: -expense.totalExpense,
+      }
+    })
+
+  return [...groups, ...additionalGroups].sort((a, b) => b.retainedProfit - a.retainedProfit)
+}
+
+function sortGroups(groups: Map<string, any>, expensesByUserId = new Map<string, any>()) {
   return Array.from(groups.values())
     .map(group => ({
       ...group,
       profitRate: group.sales > 0 ? (group.grossProfit / group.sales) * 100 : 0,
       items: group.items.sort((a: any, b: any) => String(b.paymentDate).localeCompare(String(a.paymentDate))),
     }))
+    .map(group => applyExpensesToGroups([group], expensesByUserId)[0])
     .sort((a, b) => b.grossProfit - a.grossProfit)
 }
 
-function groupDueInvoices(rows: any[]) {
+function groupDueInvoices(rows: any[], expensesByUserId = new Map<string, any>(), users: any[] = []) {
   const groups = new Map<string, any>()
 
   for (const row of rows) {
@@ -122,7 +194,7 @@ function groupDueInvoices(rows: any[]) {
     })
   }
 
-  return sortGroups(groups)
+  return addExpenseOnlyGroups(sortGroups(groups, expensesByUserId), users, expensesByUserId)
 }
 
 function buildTotals(sourceGroups: any[]) {
@@ -131,6 +203,8 @@ function buildTotals(sourceGroups: any[]) {
     cost: sum.cost + group.cost,
     grossProfit: sum.grossProfit + group.grossProfit,
     commissionAmount: sum.commissionAmount + group.commissionAmount,
+    totalExpense: sum.totalExpense + toNumber(group.totalExpense),
+    retainedProfit: sum.retainedProfit + toNumber(group.retainedProfit),
     amount: sum.amount + group.amount,
     confirmedAmount: sum.confirmedAmount + group.confirmedAmount,
     unconfirmedAmount: sum.unconfirmedAmount + group.unconfirmedAmount,
@@ -141,6 +215,8 @@ function buildTotals(sourceGroups: any[]) {
     cost: 0,
     grossProfit: 0,
     commissionAmount: 0,
+    totalExpense: 0,
+    retainedProfit: 0,
     amount: 0,
     confirmedAmount: 0,
     unconfirmedAmount: 0,
@@ -173,8 +249,9 @@ function buildFiscalMonths(selectedYearMonth: string) {
   return Array.from({ length: 12 }, (_, index) => new Date(fiscalStartYear, 5 + index, 1))
 }
 
-function buildHistory(rows: any[], monthStarts: Date[]) {
+function buildHistory(rows: any[], monthStarts: Date[], expenses: any[], users: any[]) {
   const rowsByMonth = new Map<string, any[]>()
+  const expensesByMonth = new Map<string, any[]>()
 
   for (const row of rows) {
     if (!row.dueDate) continue
@@ -184,9 +261,16 @@ function buildHistory(rows: any[], monthStarts: Date[]) {
     rowsByMonth.set(key, current)
   }
 
+  for (const expense of expenses) {
+    const current = expensesByMonth.get(expense.yearMonth) ?? []
+    current.push(expense)
+    expensesByMonth.set(expense.yearMonth, current)
+  }
+
   return monthStarts.map(monthStart => {
     const key = formatYearMonth(monthStart)
-    const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? []))
+    const expensesByUserId = new Map<string, any>((expensesByMonth.get(key) ?? []).map(expense => [expense.userId, expense]))
+    const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? [], expensesByUserId, users))
 
     return {
       month: key,
@@ -195,6 +279,8 @@ function buildHistory(rows: any[], monthStarts: Date[]) {
       cost: totals.cost,
       grossProfit: totals.grossProfit,
       commissionAmount: totals.commissionAmount,
+      totalExpense: totals.totalExpense,
+      retainedProfit: totals.retainedProfit,
       amount: totals.amount,
       confirmedAmount: totals.confirmedAmount,
       unconfirmedAmount: totals.unconfirmedAmount,
@@ -223,6 +309,7 @@ export async function GET(req: NextRequest) {
     const fiscalStart = toDbMonthStart(fiscalMonths[0].getFullYear(), fiscalMonths[0].getMonth())
     const fiscalEndMonth = fiscalMonths[11]
     const fiscalEndExclusive = toDbMonthStart(fiscalEndMonth.getFullYear(), fiscalEndMonth.getMonth() + 1)
+    const fiscalMonthKeys = fiscalMonths.map(formatYearMonth)
 
     let query: any = sb.from("Invoice")
       .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
@@ -256,20 +343,43 @@ export async function GET(req: NextRequest) {
       usersQuery = usersQuery.eq("id", session.user.id)
     }
 
+    let expensesQuery: any = sb.from("UserMonthlyExpense")
+      .select("*")
+      .eq("companyId", session.user.companyId)
+      .eq("yearMonth", yearMonth)
+
+    let historyExpensesQuery: any = sb.from("UserMonthlyExpense")
+      .select("*")
+      .eq("companyId", session.user.companyId)
+      .in("yearMonth", fiscalMonthKeys)
+
+    if (effectiveAssignedUserId) {
+      expensesQuery = expensesQuery.eq("userId", effectiveAssignedUserId)
+      historyExpensesQuery = historyExpensesQuery.eq("userId", effectiveAssignedUserId)
+    }
+
     const [
       { data, error },
       { data: historyRows, error: historyError },
       { data: userRows, error: userError },
+      { data: expenses, error: expensesError },
+      { data: historyExpenses, error: historyExpensesError },
     ] = await Promise.all([
       query,
       historyQuery,
       usersQuery,
+      expensesQuery,
+      historyExpensesQuery,
     ])
     if (error) throw new Error(error.message)
     if (historyError) throw new Error(historyError.message)
     if (userError) throw new Error(userError.message)
+    if (expensesError) throw new Error(expensesError.message)
+    if (historyExpensesError) throw new Error(historyExpensesError.message)
 
-    const groups = groupDueInvoices(data ?? [])
+    const expensesByUserId = new Map<string, any>((expenses ?? []).map((expense: any) => [expense.userId, expense]))
+    const users = userRows ?? []
+    const groups = groupDueInvoices(data ?? [], expensesByUserId, users)
     const totals = buildTotals(groups)
 
     return NextResponse.json({
@@ -278,11 +388,12 @@ export async function GET(req: NextRequest) {
       canViewAllUsers,
       totals,
       groups,
+      expenses: expenses ?? [],
       fiscalYear: {
         startMonth: formatYearMonth(fiscalMonths[0]),
         endMonth: formatYearMonth(fiscalMonths[11]),
       },
-      history: buildHistory(historyRows ?? [], fiscalMonths),
+      history: buildHistory(historyRows ?? [], fiscalMonths, historyExpenses ?? [], users),
     })
   } catch (e: any) {
     console.error("[profit-by-user ERROR]", e?.message ?? e)

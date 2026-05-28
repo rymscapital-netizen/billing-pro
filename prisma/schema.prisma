@@ -30,6 +30,7 @@ model Company {
   invoices         Invoice[]        @relation("InvoiceRecipient")
   issuedInvoices   Invoice[]        @relation("InvoiceIssuer")
   companyInvites   CompanyInvite[]
+  userMonthlyExpenses UserMonthlyExpense[]
 }
 
 enum CompanyType {
@@ -53,6 +54,7 @@ model User {
   ocrJobs              OcrJob[]
   assignedInvoices     Invoice[]        @relation("InvoiceAssignedUser")
   assignedRcvInvoices  ReceivedInvoice[] @relation("ReceivedInvoiceAssignedUser")
+  monthlyExpenses      UserMonthlyExpense[]
 }
 
 enum UserRole {
@@ -115,6 +117,32 @@ model InvoiceProfit {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   invoice Invoice @relation(fields: [invoiceId], references: [id])
+}
+
+model UserMonthlyExpense {
+  id                 String   @id @default(cuid())
+  companyId          String
+  userId             String
+  yearMonth          String
+  baseSalary         Decimal  @default(0) @db.Decimal(14, 0)
+  socialInsurance    Decimal  @default(0) @db.Decimal(14, 0)
+  rentAllocation     Decimal  @default(0) @db.Decimal(14, 0)
+  paidCommission     Decimal  @default(0) @db.Decimal(14, 0)
+  travelExpense      Decimal  @default(0) @db.Decimal(14, 0)
+  corporateTax       Decimal  @default(0) @db.Decimal(14, 0)
+  communicationCost  Decimal  @default(0) @db.Decimal(14, 0)
+  welfareExpense     Decimal  @default(0) @db.Decimal(14, 0)
+  suppliesExpense    Decimal  @default(0) @db.Decimal(14, 0)
+  otherExpense       Decimal  @default(0) @db.Decimal(14, 0)
+  otherMemo          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([userId, yearMonth])
+  @@index([companyId, yearMonth])
 }
 
 model InvoicePayment {

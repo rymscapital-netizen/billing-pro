@@ -3,7 +3,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
-import { Calculator, CheckCircle2, RefreshCw, TrendingUp, Wallet } from "lucide-react"
+import { Calculator, CheckCircle2, RefreshCw, Save, TrendingUp, Wallet } from "lucide-react"
 
 const Bar = dynamic(() => import("recharts").then(m => m.Bar), { ssr: false })
 const CartesianGrid = dynamic(() => import("recharts").then(m => m.CartesianGrid), { ssr: false })
@@ -33,6 +33,24 @@ type ProfitItem = {
   hasProfit: boolean
 }
 
+type UserExpense = {
+  id?: string | null
+  userId?: string | null
+  yearMonth?: string | null
+  baseSalary: number
+  socialInsurance: number
+  rentAllocation: number
+  paidCommission: number
+  travelExpense: number
+  corporateTax: number
+  communicationCost: number
+  welfareExpense: number
+  suppliesExpense: number
+  otherExpense: number
+  otherMemo?: string | null
+  totalExpense: number
+}
+
 type ProfitGroup = {
   userId: string
   userName: string
@@ -47,6 +65,9 @@ type ProfitGroup = {
   invoiceCount: number
   missingProfitCount: number
   profitRate: number
+  expenses: UserExpense
+  totalExpense: number
+  retainedProfit: number
   items: ProfitItem[]
 }
 
@@ -57,6 +78,8 @@ type ProfitHistory = {
   cost: number
   grossProfit: number
   commissionAmount: number
+  totalExpense: number
+  retainedProfit: number
   amount: number
   confirmedAmount: number
   unconfirmedAmount: number
@@ -70,6 +93,8 @@ type ProfitTotals = {
   cost: number
   grossProfit: number
   commissionAmount: number
+  totalExpense: number
+  retainedProfit: number
   amount: number
   confirmedAmount: number
   unconfirmedAmount: number
@@ -83,6 +108,7 @@ type ProfitData = {
   canViewAllUsers: boolean
   totals: ProfitTotals
   groups: ProfitGroup[]
+  expenses: UserExpense[]
   history: ProfitHistory[]
   fiscalYear: {
     startMonth: string
@@ -100,6 +126,35 @@ const yenShort = (value: number) => {
   return `${sign}¥${absolute.toLocaleString("ja-JP")}`
 }
 const pct = (value: number) => `${Number(value ?? 0).toFixed(1)}%`
+const blankExpense = (userId: string, yearMonth: string): UserExpense => ({
+  userId,
+  yearMonth,
+  baseSalary: 0,
+  socialInsurance: 0,
+  rentAllocation: 0,
+  paidCommission: 0,
+  travelExpense: 0,
+  corporateTax: 0,
+  communicationCost: 0,
+  welfareExpense: 0,
+  suppliesExpense: 0,
+  otherExpense: 0,
+  otherMemo: "",
+  totalExpense: 0,
+})
+const expenseFields: { key: keyof UserExpense; label: string }[] = [
+  { key: "baseSalary", label: "基本給" },
+  { key: "socialInsurance", label: "社保" },
+  { key: "rentAllocation", label: "家賃按分" },
+  { key: "paidCommission", label: "支払歩合" },
+  { key: "travelExpense", label: "交通費等" },
+  { key: "corporateTax", label: "法人実効税額" },
+  { key: "communicationCost", label: "通信費" },
+  { key: "welfareExpense", label: "福利厚生" },
+  { key: "suppliesExpense", label: "備品・消耗品" },
+  { key: "otherExpense", label: "その他" },
+]
+const expenseTotal = (expense: UserExpense) => expenseFields.reduce((sum, field) => sum + Number(expense[field.key] ?? 0), 0)
 const date = (value: string) => {
   const datePart = value?.slice(0, 10)
   if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
@@ -228,6 +283,8 @@ export default function AdminProfitsPage() {
   const [assignedUserId, setAssignedUserId] = useState("")
   const [users, setUsers] = useState<{ id: string; name: string; commissionRate: number }[]>([])
   const [data, setData] = useState<ProfitData | null>(null)
+  const [expenseForms, setExpenseForms] = useState<Record<string, UserExpense>>({})
+  const [savingExpenseId, setSavingExpenseId] = useState("")
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
 
@@ -246,6 +303,14 @@ export default function AdminProfitsPage() {
       if (!res.ok) throw new Error(body?.error ?? "担当者別利益の取得に失敗しました")
       setData(body)
       setUsers(body?.users ?? [])
+      const nextForms: Record<string, UserExpense> = {}
+      for (const user of body?.users ?? []) {
+        nextForms[user.id] = blankExpense(user.id, yearMonth)
+      }
+      for (const expense of body?.expenses ?? []) {
+        nextForms[expense.userId] = { ...blankExpense(expense.userId, yearMonth), ...expense }
+      }
+      setExpenseForms(nextForms)
     } catch (error: any) {
       showToast(error?.message ?? "担当者別利益の取得に失敗しました", false)
       setData(null)
@@ -253,6 +318,38 @@ export default function AdminProfitsPage() {
       setLoading(false)
     }
   }, [yearMonth, assignedUserId])
+
+  const updateExpenseField = (userId: string, field: keyof UserExpense, value: string) => {
+    setExpenseForms(prev => {
+      const current = prev[userId] ?? blankExpense(userId, yearMonth)
+      const next = {
+        ...current,
+        [field]: field === "otherMemo" ? value : Math.max(0, Number(value) || 0),
+      } as UserExpense
+      next.totalExpense = expenseTotal(next)
+      return { ...prev, [userId]: next }
+    })
+  }
+
+  const saveExpense = async (userId: string) => {
+    const form = expenseForms[userId] ?? blankExpense(userId, yearMonth)
+    setSavingExpenseId(userId)
+    try {
+      const res = await fetch("/api/user-monthly-expenses", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, userId, yearMonth }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? "月次経費の保存に失敗しました")
+      showToast("月次経費を保存しました")
+      await fetchData()
+    } catch (error: any) {
+      showToast(error?.message ?? "月次経費の保存に失敗しました", false)
+    } finally {
+      setSavingExpenseId("")
+    }
+  }
 
   useEffect(() => {
     fetchData()
@@ -266,8 +363,9 @@ export default function AdminProfitsPage() {
     sales: row.sales,
     grossProfit: row.grossProfit,
     commission: row.commissionAmount,
+    retainedProfit: row.retainedProfit,
   })), [data])
-  const hasHistory = chartData.some(row => row.sales !== 0 || row.grossProfit !== 0 || row.commission !== 0)
+  const hasHistory = chartData.some(row => row.sales !== 0 || row.grossProfit !== 0 || row.commission !== 0 || row.retainedProfit !== 0)
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -323,7 +421,7 @@ export default function AdminProfitsPage() {
             {data ? `${groups.length}名 / ${data.totals.invoiceCount}件` : "読み込み中"}
           </p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <SummaryCard
             label="売上"
             value={data ? yen(data.totals.sales) : "..."}
@@ -344,6 +442,13 @@ export default function AdminProfitsPage() {
             note="担当者ごとの固定歩合率で計算"
             tone="amber"
             icon={<Calculator size={18} />}
+          />
+          <SummaryCard
+            label="会社に残る利益"
+            value={data ? yen(data.totals.retainedProfit) : "..."}
+            note={data ? `月次経費 ${yen(data.totals.totalExpense)}` : undefined}
+            tone={data && data.totals.retainedProfit >= 0 ? "green" : "amber"}
+            icon={<TrendingUp size={18} />}
           />
           <SummaryCard
             label="着金済"
@@ -385,6 +490,7 @@ export default function AdminProfitsPage() {
                 <Bar dataKey="sales" name="売上" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="grossProfit" name="粗利" fill="#10b981" radius={[4, 4, 0, 0]} />
                 <Line dataKey="commission" name="概算歩合" type="monotone" stroke="#c49828" strokeWidth={2.5} dot={{ r: 3 }} />
+                <Line dataKey="retainedProfit" name="会社に残る利益" type="monotone" stroke="#0f172a" strokeWidth={2.5} dot={{ r: 3 }} />
               </ComposedChart>
             </ResponsiveContainer>
           ) : (
@@ -406,17 +512,19 @@ export default function AdminProfitsPage() {
                 <th style={{ textAlign: "right" }}>粗利率</th>
                 <th style={{ textAlign: "right" }}>歩合率</th>
                 <th style={{ textAlign: "right" }}>概算歩合</th>
+                <th style={{ textAlign: "right" }}>月次経費</th>
+                <th style={{ textAlign: "right" }}>会社に残る利益</th>
                 <th style={{ textAlign: "right" }}>件数</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="text-center text-navy-400 py-8">読み込み中...</td>
+                  <td colSpan={10} className="text-center text-navy-400 py-8">読み込み中...</td>
                 </tr>
               ) : groups.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center text-navy-400 py-8">この月の利益データはありません。</td>
+                  <td colSpan={10} className="text-center text-navy-400 py-8">この月の利益データはありません。</td>
                 </tr>
               ) : groups.map(group => (
                 <tr key={group.userId}>
@@ -432,11 +540,74 @@ export default function AdminProfitsPage() {
                   <td className="amount">{pct(group.profitRate)}</td>
                   <td className="amount">{pct(group.commissionRate)}</td>
                   <td className="amount text-gold-700">{yen(group.commissionAmount)}</td>
+                  <td className="amount text-red-700">{yen(group.totalExpense)}</td>
+                  <td className={`amount ${group.retainedProfit >= 0 ? "text-emerald-700" : "text-red-700"}`}>{yen(group.retainedProfit)}</td>
                   <td className="text-right tabular-nums">{group.invoiceCount}件</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-[15px] font-semibold text-navy-900">月次経費</h2>
+            <p className="text-[12px] text-navy-400 mt-1">
+              担当者ごとに、その月の人件費・共通費・税額を保存できます。
+            </p>
+          </div>
+          <p className="text-[12px] text-navy-400">{yearMonth}</p>
+        </div>
+        <div className="space-y-3">
+          {users.map(user => {
+            const form = expenseForms[user.id] ?? blankExpense(user.id, yearMonth)
+            return (
+              <div key={user.id} className="card p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[14px] font-semibold text-navy-900">{user.name}</p>
+                    <p className="text-[12px] text-navy-400">経費合計 {yen(expenseTotal(form))}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-navy"
+                    onClick={() => saveExpense(user.id)}
+                    disabled={savingExpenseId === user.id}
+                  >
+                    <Save size={13} />
+                    {savingExpenseId === user.id ? "保存中..." : "保存"}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  {expenseFields.map(field => (
+                    <label key={field.key} className="block">
+                      <span className="block text-[11px] text-navy-400 mb-1">{field.label}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={Number(form[field.key] ?? 0)}
+                        onChange={event => updateExpenseField(user.id, field.key, event.target.value)}
+                        className="form-input text-right tabular-nums"
+                      />
+                    </label>
+                  ))}
+                </div>
+                <label className="block">
+                  <span className="block text-[11px] text-navy-400 mb-1">その他メモ</span>
+                  <input
+                    type="text"
+                    value={form.otherMemo ?? ""}
+                    onChange={event => updateExpenseField(user.id, "otherMemo", event.target.value)}
+                    className="form-input"
+                    placeholder="その他経費の内訳など"
+                  />
+                </label>
+              </div>
+            )
+          })}
         </div>
       </section>
 
