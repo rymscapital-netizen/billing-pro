@@ -46,6 +46,7 @@ export default function SettingsPage() {
   const [email,       setEmail]       = useState("")
   const [contactName, setContactName] = useState("")
   const [officeRent,  setOfficeRent]  = useState(0)
+  const [officeRentStartMonth, setOfficeRentStartMonth] = useState("")
   const [savingInfo, setSavingInfo] = useState(false)
   const [infoSaved,  setInfoSaved]  = useState(false)
 
@@ -119,6 +120,7 @@ export default function SettingsPage() {
       setEmail(d.email ?? "")
       setContactName(d.contactName ?? "")
       setOfficeRent(Number(d.officeRent ?? 0))
+      setOfficeRentStartMonth(d.officeRentStartDate ? String(d.officeRentStartDate).slice(0, 7) : "")
       setAdminCompanyId(d.id ?? "")
     })
     fetch("/api/companies").then(r => r.ok ? r.json() : []).then(setCompanies).catch(() => {})
@@ -154,7 +156,15 @@ export default function SettingsPage() {
     await fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, address, tel, email, contactName, officeRent }),
+      body: JSON.stringify({
+        name,
+        address,
+        tel,
+        email,
+        contactName,
+        officeRent,
+        officeRentStartDate: officeRentStartMonth ? `${officeRentStartMonth}-01` : null,
+      }),
     })
     setSavingInfo(false)
     setInfoSaved(true)
@@ -330,6 +340,16 @@ export default function SettingsPage() {
               className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] text-right tabular-nums focus:outline-none focus:border-navy-400"
             />
             <p className="text-[11px] text-navy-400 mt-1">利益集計で、入社日以降の在籍スタッフに自動按分します。</p>
+          </div>
+          <div>
+            <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">家賃開始月</label>
+            <input
+              type="month"
+              value={officeRentStartMonth}
+              onChange={e => setOfficeRentStartMonth(e.target.value)}
+              className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] focus:outline-none focus:border-navy-400"
+            />
+            <p className="text-[11px] text-navy-400 mt-1">この月より前の利益集計では家賃を0円として扱います。</p>
           </div>
         </div>
         <div className="flex items-center gap-3 mt-5 pt-4 border-t border-navy-100">

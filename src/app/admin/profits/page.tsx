@@ -131,6 +131,8 @@ type ProfitData = {
   groups: ProfitGroup[]
   expenses: UserExpense[]
   officeRent: number
+  officeRentStartDate?: string | null
+  effectiveOfficeRent?: number
   fiscalSummary: FiscalSummary
   history: ProfitHistory[]
   fiscalYear: {
@@ -397,6 +399,8 @@ export default function AdminProfitsPage() {
     retainedProfit: row.retainedProfit,
   })), [data])
   const hasHistory = chartData.some(row => row.sales !== 0 || row.grossProfit !== 0 || row.commission !== 0 || row.retainedProfit !== 0)
+  const officeRentStartMonth = data?.officeRentStartDate ? String(data.officeRentStartDate).slice(0, 7) : ""
+  const hasAutomaticOfficeRent = (data?.officeRent ?? 0) > 0
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -642,9 +646,9 @@ export default function AdminProfitsPage() {
           </div>
           <p className="text-[12px] text-navy-400">{yearMonth}</p>
         </div>
-        {data && data.officeRent > 0 && (
+        {data && hasAutomaticOfficeRent && (
           <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-[12px] text-blue-800">
-            事務所家賃 {yen(data.officeRent)} は、各月の在籍スタッフへ自動で按分しています。入社日は設定ページの登録ユーザー一覧から変更できます。
+            事務所家賃 {yen(data.officeRent)} は、{officeRentStartMonth ? `${officeRentStartMonth}以降、` : ""}各月の在籍スタッフへ自動で按分しています。開始月より前は0円として扱います。
           </div>
         )}
         <div className="space-y-3">
@@ -679,12 +683,12 @@ export default function AdminProfitsPage() {
                         step={1}
                         value={Number(form[field.key] ?? 0)}
                         onChange={event => updateExpenseField(user.id, field.key, event.target.value)}
-                        readOnly={field.key === "rentAllocation" && (data?.officeRent ?? 0) > 0}
+                        readOnly={field.key === "rentAllocation" && hasAutomaticOfficeRent}
                         className={`form-input text-right tabular-nums ${
-                          field.key === "rentAllocation" && (data?.officeRent ?? 0) > 0 ? "bg-navy-50 text-navy-500" : ""
+                          field.key === "rentAllocation" && hasAutomaticOfficeRent ? "bg-navy-50 text-navy-500" : ""
                         }`}
                       />
-                      {field.key === "rentAllocation" && (data?.officeRent ?? 0) > 0 && (
+                      {field.key === "rentAllocation" && hasAutomaticOfficeRent && (
                         <span className="block text-[10.5px] text-navy-400 mt-1">自動按分</span>
                       )}
                     </label>

@@ -89,12 +89,20 @@ function isActiveInMonth(user: any, yearMonth: string) {
   return startDate <= monthEndDate(yearMonth)
 }
 
-function buildRentAllocations(users: any[], yearMonth: string, officeRent: number) {
+function effectiveOfficeRentForMonth(yearMonth: string, officeRent: number, officeRentStartDate?: string | null) {
+  if (officeRent <= 0) return 0
+  if (!officeRentStartDate) return officeRent
+  const startMonth = formatJstYearMonth(officeRentStartDate)
+  return yearMonth >= startMonth ? officeRent : 0
+}
+
+function buildRentAllocations(users: any[], yearMonth: string, officeRent: number, officeRentStartDate?: string | null) {
   const allocations = new Map<string, number>()
   const activeUsers = users.filter(user => isActiveInMonth(user, yearMonth))
-  if (officeRent <= 0 || activeUsers.length === 0) return allocations
+  const effectiveOfficeRent = effectiveOfficeRentForMonth(yearMonth, officeRent, officeRentStartDate)
+  if (effectiveOfficeRent <= 0 || activeUsers.length === 0) return allocations
 
-  const totalRent = Math.round(officeRent)
+  const totalRent = Math.round(effectiveOfficeRent)
   const base = Math.floor(totalRent / activeUsers.length)
   const remainder = totalRent - base * activeUsers.length
   activeUsers.forEach((user, index) => {
@@ -103,7 +111,7 @@ function buildRentAllocations(users: any[], yearMonth: string, officeRent: numbe
   return allocations
 }
 
-function applyOfficeRentToExpenses(expenses: any[], users: any[], yearMonth: string, officeRent: number) {
+function applyOfficeRentToExpenses(expenses: any[], users: any[], yearMonth: string, officeRent: number, officeRentStartDate?: string | null) {
   const byUserId = new Map<string, any>((expenses ?? []).map((expense: any) => [expense.userId, { ...expense }]))
   for (const user of users.filter(user => isActiveInMonth(user, yearMonth))) {
     const current = byUserId.get(user.id) ?? {
@@ -121,7 +129,7 @@ function applyOfficeRentToExpenses(expenses: any[], users: any[], yearMonth: str
     byUserId.set(user.id, current)
   }
 
-  const allocations = buildRentAllocations(users, yearMonth, officeRent)
+  const allocations = buildRentAllocations(users, yearMonth, officeRent, officeRentStartDate)
 
   for (const [userId, rentAllocation] of allocations.entries()) {
     const current = byUserId.get(userId) ?? {
@@ -142,9 +150,9 @@ function applyOfficeRentToExpenses(expenses: any[], users: any[], yearMonth: str
   return Array.from(byUserId.values())
 }
 
-function buildExpensesByUserId(expenses: any[], users: any[], yearMonth: string, officeRent: number) {
+function buildExpensesByUserId(expenses: any[], users: any[], yearMonth: string, officeRent: number, officeRentStartDate?: string | null) {
   return new Map<string, any>(
-    applyOfficeRentToExpenses(expenses, users, yearMonth, officeRent).map((expense: any) => [expense.userId, expense])
+    applyOfficeRentToExpenses(expenses, users, yearMonth, officeRent, officeRentStartDate).map((expense: any) => [expense.userId, expense])
   )
 }
 
@@ -384,7 +392,15 @@ function buildHistory(rows: any[], monthStarts: Date[], expenses: any[], users: 
   })
 }
 
-function buildHistoryWithRent(rows: any[], monthStarts: Date[], expenses: any[], users: any[], officeRent: number, visibleUserId: string | null) {
+function buildHistoryWithRent(
+  rows: any[],
+  monthStarts: Date[],
+  expenses: any[],
+  users: any[],
+  officeRent: number,
+  officeRentStartDate: string | null | undefined,
+  visibleUserId: string | null
+) {
   const rowsByMonth = new Map<string, any[]>()
   const expensesByMonth = new Map<string, any[]>()
 
@@ -404,7 +420,7 @@ function buildHistoryWithRent(rows: any[], monthStarts: Date[], expenses: any[],
 
   return monthStarts.map(monthStart => {
     const key = formatYearMonth(monthStart)
-    const monthExpenses = applyOfficeRentToExpenses(expensesByMonth.get(key) ?? [], users, key, officeRent)
+    const monthExpenses = applyOfficeRentToExpenses(expensesByMonth.get(key) ?? [], users, key, officeRent, officeRentStartDate)
       .filter((expense: any) => !visibleUserId || expense.userId === visibleUserId)
     const expensesByUserId = new Map<string, any>(monthExpenses.map((expense: any) => [expense.userId, expense]))
     const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? [], expensesByUserId, users))
@@ -440,6 +456,7 @@ function buildFiscalSummary(params: {
   expenses: any[]
   users: any[]
   officeRent: number
+  officeRentStartDate?: string | null
   monthStarts: Date[]
   selectedYearMonth: string
   visibleUserId: string | null
@@ -457,6 +474,7 @@ function buildFiscalSummary(params: {
     expenses,
     params.users,
     params.officeRent,
+    params.officeRentStartDate,
     params.visibleUserId
   )
   const totals = monthly.reduce((sum, row) => ({
@@ -599,7 +617,7 @@ export async function GET(req: NextRequest) {
       rentUsersQuery,
       expensesQuery,
       historyExpensesQuery,
-      sb.from("Company").select("officeRent").eq("id", session.user.companyId).maybeSingle(),
+      sb.from("Company").select("officeRent, officeRentStartDate").eq("id", session.user.companyId).maybeSingle(),
       receivedTaxQuery,
     ])
     if (error) throw new Error(error.message)
@@ -614,18 +632,21 @@ export async function GET(req: NextRequest) {
     const users = userRows ?? []
     const rentUsers = rentUserRows ?? users
     const officeRent = toNumber(companySettings?.officeRent)
-    const currentExpenses = applyOfficeRentToExpenses(expenses ?? [], rentUsers, yearMonth, officeRent)
+    const officeRentStartDate = companySettings?.officeRentStartDate ?? null
+    const effectiveOfficeRent = effectiveOfficeRentForMonth(yearMonth, officeRent, officeRentStartDate)
+    const currentExpenses = applyOfficeRentToExpenses(expenses ?? [], rentUsers, yearMonth, officeRent, officeRentStartDate)
       .filter((expense: any) => !effectiveAssignedUserId || expense.userId === effectiveAssignedUserId)
     const expensesByUserId = new Map<string, any>(currentExpenses.map((expense: any) => [expense.userId, expense]))
     const groups = groupDueInvoices(data ?? [], expensesByUserId, users)
     const totals = buildTotals(groups)
-    const history = buildHistoryWithRent(historyRows ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, effectiveAssignedUserId)
+    const history = buildHistoryWithRent(historyRows ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, officeRentStartDate, effectiveAssignedUserId)
     const fiscalSummary = buildFiscalSummary({
       rows: historyRows ?? [],
       receivedRows: receivedTaxRows ?? [],
       expenses: historyExpenses ?? [],
       users: rentUsers,
       officeRent,
+      officeRentStartDate,
       monthStarts: fiscalMonths,
       selectedYearMonth: yearMonth,
       visibleUserId: effectiveAssignedUserId,
@@ -639,6 +660,8 @@ export async function GET(req: NextRequest) {
       groups,
       expenses: currentExpenses.map(normalizeExpense),
       officeRent,
+      officeRentStartDate,
+      effectiveOfficeRent,
       fiscalYear: {
         startMonth: formatYearMonth(fiscalMonths[0]),
         endMonth: formatYearMonth(fiscalMonths[11]),

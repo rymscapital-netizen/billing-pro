@@ -22,6 +22,7 @@ model Company {
   bankAccountHolder   String?
   bankAccountMemo     String?
   officeRent          Decimal     @default(0) @db.Decimal(14, 0)
+  officeRentStartDate DateTime?
   type                CompanyType @default(CLIENT)
   isActive            Boolean     @default(true)
   createdByCompanyId  String?
