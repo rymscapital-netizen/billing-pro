@@ -22,6 +22,7 @@ export default function SettingsPage() {
   const [tel,        setTel]        = useState("")
   const [email,       setEmail]       = useState("")
   const [contactName, setContactName] = useState("")
+  const [officeRent,  setOfficeRent]  = useState(0)
   const [savingInfo, setSavingInfo] = useState(false)
   const [infoSaved,  setInfoSaved]  = useState(false)
 
@@ -33,6 +34,7 @@ export default function SettingsPage() {
   const [staffEmail,    setStaffEmail]    = useState("")
   const [staffPassword, setStaffPassword] = useState("")
   const [staffCommissionRate, setStaffCommissionRate] = useState(0)
+  const [staffEmploymentStartDate, setStaffEmploymentStartDate] = useState("")
   const [showStaffPass, setShowStaffPass] = useState(false)
   const [addingStaff,   setAddingStaff]   = useState(false)
   const [staffAdded,    setStaffAdded]    = useState(false)
@@ -92,6 +94,7 @@ export default function SettingsPage() {
       setTel(d.tel ?? "")
       setEmail(d.email ?? "")
       setContactName(d.contactName ?? "")
+      setOfficeRent(Number(d.officeRent ?? 0))
       setAdminCompanyId(d.id ?? "")
     })
     fetch("/api/companies").then(r => r.ok ? r.json() : []).then(setCompanies).catch(() => {})
@@ -108,12 +111,13 @@ export default function SettingsPage() {
         name: staffName, email: staffEmail, password: staffPassword,
         role: "ADMIN", companyId: adminCompanyId,
         commissionRate: staffCommissionRate,
+        employmentStartDate: staffEmploymentStartDate || null,
       }),
     })
     if (res.ok) {
       const newUser = await res.json()
       setUsers(prev => [newUser, ...prev])
-      setStaffName(""); setStaffEmail(""); setStaffPassword(""); setStaffCommissionRate(0)
+      setStaffName(""); setStaffEmail(""); setStaffPassword(""); setStaffCommissionRate(0); setStaffEmploymentStartDate("")
       setStaffAdded(true)
       setTimeout(() => setStaffAdded(false), 3000)
     }
@@ -125,7 +129,7 @@ export default function SettingsPage() {
     await fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, address, tel, email, contactName }),
+      body: JSON.stringify({ name, address, tel, email, contactName, officeRent }),
     })
     setSavingInfo(false)
     setInfoSaved(true)
@@ -158,6 +162,10 @@ export default function SettingsPage() {
     setUsers(prev => prev.map(user => user.id === userId ? { ...user, commissionRate: rate } : user))
   }
 
+  const handleEmploymentStartDateChange = (userId: string, value: string) => {
+    setUsers(prev => prev.map(user => user.id === userId ? { ...user, employmentStartDate: value || null } : user))
+  }
+
   const handleSaveCommission = async (userId: string) => {
     const target = users.find(user => user.id === userId)
     if (!target) return
@@ -168,6 +176,7 @@ export default function SettingsPage() {
       body: JSON.stringify({
         userId,
         commissionRate: Number(target.commissionRate ?? 0),
+        employmentStartDate: target.employmentStartDate ? String(target.employmentStartDate).slice(0, 10) : null,
       }),
     })
     if (res.ok) {
@@ -279,6 +288,18 @@ export default function SettingsPage() {
               />
             </div>
           ))}
+          <div>
+            <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">事務所家賃（月額）</label>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={officeRent}
+              onChange={e => setOfficeRent(Math.max(0, Number(e.target.value) || 0))}
+              className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] text-right tabular-nums focus:outline-none focus:border-navy-400"
+            />
+            <p className="text-[11px] text-navy-400 mt-1">利益集計で、入社日以降の在籍スタッフに自動按分します。</p>
+          </div>
         </div>
         <div className="flex items-center gap-3 mt-5 pt-4 border-t border-navy-100">
           <button
@@ -345,6 +366,15 @@ export default function SettingsPage() {
                 />
                 <span className="text-[12px] text-navy-400">%</span>
               </div>
+            </div>
+            <div>
+              <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">入社日</label>
+              <input
+                type="date"
+                value={staffEmploymentStartDate}
+                onChange={e => setStaffEmploymentStartDate(e.target.value)}
+                className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] focus:outline-none focus:border-navy-400"
+              />
             </div>
           </div>
         </div>
@@ -457,7 +487,7 @@ export default function SettingsPage() {
               <table className="w-full text-[12.5px]">
                 <thead>
                   <tr className="bg-white border-b border-navy-100">
-                    {["氏名","メールアドレス","役割","固定歩合率","ステータス"].map(h => (
+                    {["氏名","メールアドレス","役割","固定歩合率","入社日","ステータス"].map(h => (
                       <th key={h} className="text-left px-4 py-2 text-[10.5px] text-navy-400 font-medium">{h}</th>
                     ))}
                   </tr>
@@ -497,6 +527,18 @@ export default function SettingsPage() {
                             </button>
                             {commissionSavedId === u.id && <span className="text-[11px] text-emerald-600">保存済み</span>}
                           </div>
+                        ) : (
+                          <span className="text-[12px] text-navy-300">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {u.role === "ADMIN" ? (
+                          <input
+                            type="date"
+                            value={u.employmentStartDate ? String(u.employmentStartDate).slice(0, 10) : ""}
+                            onChange={e => handleEmploymentStartDateChange(u.id, e.target.value)}
+                            className="w-[135px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] focus:outline-none focus:border-navy-400"
+                          />
                         ) : (
                           <span className="text-[12px] text-navy-300">-</span>
                         )}

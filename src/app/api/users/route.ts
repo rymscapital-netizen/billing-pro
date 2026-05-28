@@ -12,11 +12,13 @@ const createSchema = z.object({
   role:      z.enum(["ADMIN", "CLIENT"]),
   companyId: z.string().min(1),
   commissionRate: z.number().min(0).max(100).optional(),
+  employmentStartDate: z.string().optional().nullable(),
 })
 
 const updateSchema = z.object({
   userId: z.string().min(1),
   commissionRate: z.number().min(0).max(100).optional(),
+  employmentStartDate: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
 })
 
@@ -35,7 +37,7 @@ export async function GET() {
   try {
     const sb = getSb()
     const { data: users, error } = await sb.from("User")
-      .select("id, name, email, role, companyId, isActive, commissionRate, createdAt, updatedAt")
+      .select("id, name, email, role, companyId, isActive, commissionRate, employmentStartDate, createdAt, updatedAt")
       .eq("companyId", u.companyId)
       .order("createdAt", { ascending: false })
     if (error) throw new Error(error.message)
@@ -81,6 +83,7 @@ export async function POST(req: NextRequest) {
       role,
       companyId:    body.companyId,
       commissionRate: role === "ADMIN" ? body.commissionRate ?? 0 : 0,
+      employmentStartDate: role === "ADMIN" && body.employmentStartDate ? new Date(body.employmentStartDate) : null,
     },
     include: { company: { select: { id: true, name: true } } },
   })
@@ -101,13 +104,14 @@ export async function PATCH(req: NextRequest) {
 
   const updates: Record<string, any> = { updatedAt: new Date().toISOString() }
   if (body.commissionRate !== undefined) updates.commissionRate = body.commissionRate
+  if (body.employmentStartDate !== undefined) updates.employmentStartDate = body.employmentStartDate || null
   if (body.isActive !== undefined) updates.isActive = body.isActive
 
   const { data, error } = await sb.from("User")
     .update(updates)
     .eq("id", body.userId)
     .eq("companyId", u.companyId)
-    .select("id, name, email, role, companyId, isActive, commissionRate, createdAt, updatedAt")
+    .select("id, name, email, role, companyId, isActive, commissionRate, employmentStartDate, createdAt, updatedAt")
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

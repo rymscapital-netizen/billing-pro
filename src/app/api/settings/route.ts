@@ -9,6 +9,7 @@ const schema = z.object({
   tel:         z.string().optional(),
   email:       z.string().optional(),
   contactName: z.string().optional(),
+  officeRent:  z.number().min(0).max(99999999999999).optional(),
 })
 
 export async function GET() {
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest) {
         tel:         body.tel,
         email:       body.email,
         contactName: body.contactName,
+        officeRent:  body.officeRent ?? 0,
       },
     })
     return NextResponse.json({ ok: true })

@@ -52,6 +52,7 @@ type UserExpense = {
   otherMemo?: string | null
   totalExpense: number
   totalDeductionReference?: number
+  isAutoRentAllocation?: boolean
 }
 
 type ProfitGroup = {
@@ -112,6 +113,7 @@ type ProfitData = {
   totals: ProfitTotals
   groups: ProfitGroup[]
   expenses: UserExpense[]
+  officeRent: number
   history: ProfitHistory[]
   fiscalYear: {
     startMonth: string
@@ -570,6 +572,11 @@ export default function AdminProfitsPage() {
           </div>
           <p className="text-[12px] text-navy-400">{yearMonth}</p>
         </div>
+        {data && data.officeRent > 0 && (
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-[12px] text-blue-800">
+            事務所家賃 {yen(data.officeRent)} は、各月の在籍スタッフへ自動で按分しています。入社日は設定ページの登録ユーザー一覧から変更できます。
+          </div>
+        )}
         <div className="space-y-3">
           {users.map(user => {
             const form = expenseForms[user.id] ?? blankExpense(user.id, yearMonth)
@@ -602,8 +609,14 @@ export default function AdminProfitsPage() {
                         step={1}
                         value={Number(form[field.key] ?? 0)}
                         onChange={event => updateExpenseField(user.id, field.key, event.target.value)}
-                        className="form-input text-right tabular-nums"
+                        readOnly={field.key === "rentAllocation" && (data?.officeRent ?? 0) > 0}
+                        className={`form-input text-right tabular-nums ${
+                          field.key === "rentAllocation" && (data?.officeRent ?? 0) > 0 ? "bg-navy-50 text-navy-500" : ""
+                        }`}
                       />
+                      {field.key === "rentAllocation" && (data?.officeRent ?? 0) > 0 && (
+                        <span className="block text-[10.5px] text-navy-400 mt-1">自動按分</span>
+                      )}
                     </label>
                   ))}
                 </div>

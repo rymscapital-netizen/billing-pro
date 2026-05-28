@@ -54,12 +54,68 @@ function normalizeExpense(expense: any) {
     userId: expense?.userId ?? null,
     yearMonth: expense?.yearMonth ?? null,
     otherMemo: expense?.otherMemo ?? "",
+    isAutoRentAllocation: Boolean(expense?.isAutoRentAllocation),
   }
   for (const field of expenseFields) normalized[field] = toNumber(expense?.[field])
   for (const field of referenceDeductionFields) normalized[field] = toNumber(expense?.[field])
   normalized.totalExpense = calculateExpenseTotal(expense)
   normalized.totalDeductionReference = referenceDeductionFields.reduce((sum, field) => sum + toNumber(expense?.[field]), 0)
   return normalized
+}
+
+function monthEndDate(yearMonth: string) {
+  const [year, month] = yearMonth.split("-").map(Number)
+  return new Date(year, month, 0, 23, 59, 59, 999)
+}
+
+function isActiveInMonth(user: any, yearMonth: string) {
+  if (!user?.employmentStartDate) return true
+  const startDate = new Date(user.employmentStartDate)
+  if (Number.isNaN(startDate.getTime())) return true
+  return startDate <= monthEndDate(yearMonth)
+}
+
+function buildRentAllocations(users: any[], yearMonth: string, officeRent: number) {
+  const allocations = new Map<string, number>()
+  const activeUsers = users.filter(user => isActiveInMonth(user, yearMonth))
+  if (officeRent <= 0 || activeUsers.length === 0) return allocations
+
+  const totalRent = Math.round(officeRent)
+  const base = Math.floor(totalRent / activeUsers.length)
+  const remainder = totalRent - base * activeUsers.length
+  activeUsers.forEach((user, index) => {
+    allocations.set(user.id, base + (index < remainder ? 1 : 0))
+  })
+  return allocations
+}
+
+function applyOfficeRentToExpenses(expenses: any[], users: any[], yearMonth: string, officeRent: number) {
+  const byUserId = new Map<string, any>((expenses ?? []).map((expense: any) => [expense.userId, { ...expense }]))
+  const allocations = buildRentAllocations(users, yearMonth, officeRent)
+
+  for (const [userId, rentAllocation] of allocations.entries()) {
+    const current = byUserId.get(userId) ?? {
+      id: null,
+      userId,
+      yearMonth,
+      otherMemo: "",
+    }
+    byUserId.set(userId, {
+      ...current,
+      userId,
+      yearMonth,
+      rentAllocation,
+      isAutoRentAllocation: true,
+    })
+  }
+
+  return Array.from(byUserId.values())
+}
+
+function buildExpensesByUserId(expenses: any[], users: any[], yearMonth: string, officeRent: number) {
+  return new Map<string, any>(
+    applyOfficeRentToExpenses(expenses, users, yearMonth, officeRent).map((expense: any) => [expense.userId, expense])
+  )
 }
 
 function toDbMonthStart(year: number, monthIndex: number) {
@@ -298,6 +354,50 @@ function buildHistory(rows: any[], monthStarts: Date[], expenses: any[], users: 
   })
 }
 
+function buildHistoryWithRent(rows: any[], monthStarts: Date[], expenses: any[], users: any[], officeRent: number, visibleUserId: string | null) {
+  const rowsByMonth = new Map<string, any[]>()
+  const expensesByMonth = new Map<string, any[]>()
+
+  for (const row of rows) {
+    if (!row.dueDate) continue
+    const key = formatJstYearMonth(row.dueDate)
+    const current = rowsByMonth.get(key) ?? []
+    current.push(row)
+    rowsByMonth.set(key, current)
+  }
+
+  for (const expense of expenses) {
+    const current = expensesByMonth.get(expense.yearMonth) ?? []
+    current.push(expense)
+    expensesByMonth.set(expense.yearMonth, current)
+  }
+
+  return monthStarts.map(monthStart => {
+    const key = formatYearMonth(monthStart)
+    const monthExpenses = applyOfficeRentToExpenses(expensesByMonth.get(key) ?? [], users, key, officeRent)
+      .filter((expense: any) => !visibleUserId || expense.userId === visibleUserId)
+    const expensesByUserId = new Map<string, any>(monthExpenses.map((expense: any) => [expense.userId, expense]))
+    const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? [], expensesByUserId, users))
+
+    return {
+      month: key,
+      label: `${monthStart.getFullYear()}/${String(monthStart.getMonth() + 1).padStart(2, "0")}`,
+      sales: totals.sales,
+      cost: totals.cost,
+      grossProfit: totals.grossProfit,
+      commissionAmount: totals.commissionAmount,
+      totalExpense: totals.totalExpense,
+      retainedProfit: totals.retainedProfit,
+      amount: totals.amount,
+      confirmedAmount: totals.confirmedAmount,
+      unconfirmedAmount: totals.unconfirmedAmount,
+      invoiceCount: totals.invoiceCount,
+      missingProfitCount: totals.missingProfitCount,
+      profitRate: totals.profitRate,
+    }
+  })
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await auth()
@@ -319,7 +419,7 @@ export async function GET(req: NextRequest) {
     const fiscalMonthKeys = fiscalMonths.map(formatYearMonth)
 
     let query: any = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", start)
@@ -327,7 +427,7 @@ export async function GET(req: NextRequest) {
       .order("dueDate", { ascending: false })
 
     let historyQuery: any = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", fiscalStart)
@@ -340,7 +440,14 @@ export async function GET(req: NextRequest) {
     }
 
     let usersQuery: any = sb.from("User")
-      .select("id, name, commissionRate")
+      .select("id, name, commissionRate, employmentStartDate")
+      .eq("companyId", session.user.companyId)
+      .eq("isActive", true)
+      .eq("role", "ADMIN")
+      .order("name", { ascending: true })
+
+    const rentUsersQuery = sb.from("User")
+      .select("id, name, commissionRate, employmentStartDate")
       .eq("companyId", session.user.companyId)
       .eq("isActive", true)
       .eq("role", "ADMIN")
@@ -369,23 +476,33 @@ export async function GET(req: NextRequest) {
       { data, error },
       { data: historyRows, error: historyError },
       { data: userRows, error: userError },
+      { data: rentUserRows, error: rentUserError },
       { data: expenses, error: expensesError },
       { data: historyExpenses, error: historyExpensesError },
+      { data: companySettings, error: companySettingsError },
     ] = await Promise.all([
       query,
       historyQuery,
       usersQuery,
+      rentUsersQuery,
       expensesQuery,
       historyExpensesQuery,
+      sb.from("Company").select("officeRent").eq("id", session.user.companyId).maybeSingle(),
     ])
     if (error) throw new Error(error.message)
     if (historyError) throw new Error(historyError.message)
     if (userError) throw new Error(userError.message)
+    if (rentUserError) throw new Error(rentUserError.message)
     if (expensesError) throw new Error(expensesError.message)
     if (historyExpensesError) throw new Error(historyExpensesError.message)
+    if (companySettingsError) throw new Error(companySettingsError.message)
 
-    const expensesByUserId = new Map<string, any>((expenses ?? []).map((expense: any) => [expense.userId, expense]))
     const users = userRows ?? []
+    const rentUsers = rentUserRows ?? users
+    const officeRent = toNumber(companySettings?.officeRent)
+    const currentExpenses = applyOfficeRentToExpenses(expenses ?? [], rentUsers, yearMonth, officeRent)
+      .filter((expense: any) => !effectiveAssignedUserId || expense.userId === effectiveAssignedUserId)
+    const expensesByUserId = new Map<string, any>(currentExpenses.map((expense: any) => [expense.userId, expense]))
     const groups = groupDueInvoices(data ?? [], expensesByUserId, users)
     const totals = buildTotals(groups)
 
@@ -395,12 +512,13 @@ export async function GET(req: NextRequest) {
       canViewAllUsers,
       totals,
       groups,
-      expenses: expenses ?? [],
+      expenses: currentExpenses.map(normalizeExpense),
+      officeRent,
       fiscalYear: {
         startMonth: formatYearMonth(fiscalMonths[0]),
         endMonth: formatYearMonth(fiscalMonths[11]),
       },
-      history: buildHistory(historyRows ?? [], fiscalMonths, historyExpenses ?? [], users),
+      history: buildHistoryWithRent(historyRows ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, effectiveAssignedUserId),
     })
   } catch (e: any) {
     console.error("[profit-by-user ERROR]", e?.message ?? e)

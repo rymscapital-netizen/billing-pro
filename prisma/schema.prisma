@@ -21,6 +21,7 @@ model Company {
   bankAccountNumber   String?
   bankAccountHolder   String?
   bankAccountMemo     String?
+  officeRent          Decimal     @default(0) @db.Decimal(14, 0)
   type                CompanyType @default(CLIENT)
   isActive            Boolean     @default(true)
   createdByCompanyId  String?
@@ -47,6 +48,7 @@ model User {
   role         UserRole @default(CLIENT)
   isActive     Boolean  @default(true)
   commissionRate Decimal @default(0) @db.Decimal(5, 2)
+  employmentStartDate DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   company              Company          @relation(fields: [companyId], references: [id])

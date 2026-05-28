@@ -1,0 +1,5 @@
+ALTER TABLE "Company"
+ADD COLUMN "officeRent" DECIMAL(14,0) NOT NULL DEFAULT 0;
+
+ALTER TABLE "User"
+ADD COLUMN "employmentStartDate" TIMESTAMP(3);
