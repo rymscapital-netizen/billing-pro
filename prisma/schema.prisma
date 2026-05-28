@@ -64,6 +64,7 @@ model User {
   clearedPayments      InvoicePayment[] @relation("ClearedBy")
   ocrJobs              OcrJob[]
   assignedInvoices     Invoice[]        @relation("InvoiceAssignedUser")
+  invoiceAssignments   InvoiceAssignment[]
   assignedRcvInvoices  ReceivedInvoice[] @relation("ReceivedInvoiceAssignedUser")
   monthlyExpenses      UserMonthlyExpense[]
 }
@@ -97,8 +98,24 @@ model Invoice {
   assignedUser   User?            @relation("InvoiceAssignedUser", fields: [assignedUserId], references: [id])
   profit         InvoiceProfit?
   payments       InvoicePayment[]
+  assignments    InvoiceAssignment[]
   ocrJobs        OcrJob[]
   images         InvoiceImage[]
+}
+
+model InvoiceAssignment {
+  id        String   @id @default(cuid())
+  invoiceId String
+  userId    String
+  shareRate Decimal  @db.Decimal(5, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([invoiceId, userId])
+  @@index([userId])
 }
 
 model InvoiceImage {

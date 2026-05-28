@@ -28,6 +28,7 @@ type TaxBreakdown = { ex: number; inc: number; taxRate: number }
 const calcEx  = (inc: number, rate: number) => Math.floor(inc / (1 + rate / 100))
 const calcInc = (ex: number, rate: number)  => Math.round(ex * (1 + rate / 100))
 const taxAmt  = (b: TaxBreakdown) => b.inc - b.ex
+type AssignmentDraft = { userId: string; shareRate: number }
 
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -49,6 +50,7 @@ export default function InvoiceDetailPage() {
   const [editForm, setEditForm]     = useState({
     subject: "", issueDate: "", dueDate: "", subtotal: 0, taxRate: 10, notes: "", assignedUserId: "",
   })
+  const [editAssignments, setEditAssignments] = useState<AssignmentDraft[]>([{ userId: "", shareRate: 100 }])
 
   // 利益情報（税込/税抜 3カード）
   const [salesBreak, setSalesBreak] = useState<TaxBreakdown>({ ex: 0, inc: 0, taxRate: 10 })
@@ -106,6 +108,28 @@ export default function InvoiceDetailPage() {
   }
   useEffect(() => { fetchInv() }, [id])
 
+  const normalizedAssignments = editAssignments
+    .filter(assignment => assignment.userId && Number(assignment.shareRate) > 0)
+    .map(assignment => ({
+      userId: assignment.userId,
+      shareRate: Number(assignment.shareRate),
+    }))
+  const assignmentTotal = normalizedAssignments.reduce((sum, assignment) => sum + assignment.shareRate, 0)
+  const assignmentTotalValid = normalizedAssignments.length === 0 || Math.round(assignmentTotal * 100) === 10000
+  const updateAssignment = (index: number, patch: Partial<AssignmentDraft>) => {
+    setEditAssignments(prev => prev.map((assignment, i) => i === index ? { ...assignment, ...patch } : assignment))
+  }
+  const addAssignment = () => {
+    const remaining = Math.max(0, 100 - assignmentTotal)
+    setEditAssignments(prev => [...prev, { userId: "", shareRate: remaining }])
+  }
+  const removeAssignment = (index: number) => {
+    setEditAssignments(prev => {
+      const next = prev.filter((_, i) => i !== index)
+      return next.length > 0 ? next : [{ userId: "", shareRate: 100 }]
+    })
+  }
+
   // ─── 編集開始 ────────────────────────────────────────────────
   const startEdit = async () => {
     const taxRateVal = inv.subtotal > 0 ? Math.round((Number(inv.tax) / Number(inv.subtotal)) * 100) : 10
@@ -118,6 +142,13 @@ export default function InvoiceDetailPage() {
       notes:          inv.notes ?? "",
       assignedUserId: inv.assignedUser?.id ?? "",
     })
+    const existingAssignments = Array.isArray(inv.assignments) && inv.assignments.length > 0
+      ? inv.assignments.map((assignment: any) => ({
+          userId: assignment.userId ?? assignment.user?.id ?? "",
+          shareRate: Number(assignment.shareRate ?? 0),
+        }))
+      : [{ userId: inv.assignedUser?.id ?? "", shareRate: 100 }]
+    setEditAssignments(existingAssignments)
 
     // 利益情報の初期値
     const p = inv.profit
@@ -152,6 +183,11 @@ export default function InvoiceDetailPage() {
   const handleSave = async () => {
     setSaving(true)
     const tax = Math.round(editForm.subtotal * (editForm.taxRate / 100))
+    if (!assignmentTotalValid) {
+      alert("担当者の売上割合の合計は100%にしてください")
+      setSaving(false)
+      return
+    }
 
     // 1. 請求書本体 + 利益情報 PATCH
     const invoiceRes = await fetch(`/api/invoices/${id}`, {
@@ -164,7 +200,8 @@ export default function InvoiceDetailPage() {
         subtotal:       editForm.subtotal,
         tax,
         notes:          editForm.notes,
-        assignedUserId: editForm.assignedUserId,
+        assignedUserId: normalizedAssignments[0]?.userId || editForm.assignedUserId,
+        assignments:    normalizedAssignments,
         sales:          salesBreak.ex,
         cost:           costBreak.ex,
       }),
@@ -491,12 +528,60 @@ export default function InvoiceDetailPage() {
                   <div className="form-input bg-navy-50 text-navy-500 cursor-default">{inv.company.name}</div>
                 </div>
                 <div className="col-span-2">
-                  <label className="form-label">担当者</label>
-                  <select className="form-input" value={editForm.assignedUserId}
-                    onChange={e => setEditForm(f => ({ ...f, assignedUserId: e.target.value }))}>
+                  <label className="form-label">担当者・売上割合</label>
+                  <select className="hidden" value={editForm.assignedUserId}
+                    onChange={e => {
+                      setEditForm(f => ({ ...f, assignedUserId: e.target.value }))
+                      setEditAssignments([{ userId: e.target.value, shareRate: 100 }])
+                    }}>
                     <option value="">未設定</option>
                     {allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
+                  <div className="mt-2 space-y-2">
+                    {editAssignments.map((assignment, index) => (
+                      <div key={index} className="grid grid-cols-[1fr_88px_auto] gap-2">
+                        <select
+                          className="form-input"
+                          value={assignment.userId}
+                          onChange={e => {
+                            updateAssignment(index, { userId: e.target.value })
+                            if (index === 0) setEditForm(f => ({ ...f, assignedUserId: e.target.value }))
+                          }}
+                        >
+                          <option value="">未設定</option>
+                          {allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={1}
+                          className="form-input text-right tabular-nums"
+                          value={assignment.shareRate}
+                          onChange={e => updateAssignment(index, { shareRate: Number(e.target.value) || 0 })}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeAssignment(index)}
+                          disabled={editAssignments.length === 1}
+                          className="px-3 py-2 text-[12px] rounded-lg border border-navy-200 text-navy-500 hover:bg-navy-50 disabled:opacity-40 transition-colors"
+                        >
+                          削除
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <button type="button" onClick={addAssignment} className="text-[12px] font-medium text-navy-600 hover:text-navy-900">
+                      + 担当者を追加
+                    </button>
+                    <span className={`text-[12px] font-medium ${assignmentTotalValid ? "text-navy-500" : "text-red-600"}`}>
+                      合計 {assignmentTotal.toFixed(0)}%
+                    </span>
+                  </div>
+                  {!assignmentTotalValid && (
+                    <p className="mt-1 text-[11px] text-red-600">売上割合の合計を100%にしてください。</p>
+                  )}
                 </div>
                 <div className="col-span-2">
                   <label className="form-label">備考</label>

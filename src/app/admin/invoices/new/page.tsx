@@ -20,6 +20,7 @@ const schema = z.object({
   notes:         z.string().optional(),
 })
 type FormData = z.infer<typeof schema>
+type AssignmentDraft = { userId: string; shareRate: number }
 
 // 売上・原価の税込/税抜/消費税額を管理する型
 type TaxBreakdown = { ex: number; inc: number; taxRate: number }
@@ -36,6 +37,7 @@ export default function NewInvoicePage() {
   const [companies, setCompanies]       = useState<{ id: string; name: string }[]>([])
   const [adminUsers, setAdminUsers]     = useState<{ id: string; name: string }[]>([])
   const [assignedUserId, setAssignedUserId] = useState("")
+  const [assignments, setAssignments] = useState<AssignmentDraft[]>([{ userId: "", shareRate: 100 }])
   const [rcvInvoices, setRcvInvoices]     = useState<any[]>([])
   const [selectedRcvIds, setSelectedRcvIds] = useState<string[]>([])
   const [addingRcvId, setAddingRcvId]     = useState("")
@@ -118,6 +120,31 @@ export default function NewInvoicePage() {
   const totalRcvInc = selectedRcvList.reduce((s, r) => s + Number(r.amount), 0)  // 合計税込
   const totalRcvEx  = Math.round(totalRcvInc / 1.1)                               // 合計税抜
   const totalRcvTax = totalRcvInc - totalRcvEx
+  const normalizedAssignments = assignments
+    .filter(assignment => assignment.userId && Number(assignment.shareRate) > 0)
+    .map(assignment => ({
+      userId: assignment.userId,
+      shareRate: Number(assignment.shareRate),
+    }))
+  const assignmentTotal = normalizedAssignments.reduce((sum, assignment) => sum + assignment.shareRate, 0)
+  const assignmentTotalValid = normalizedAssignments.length === 0 || Math.round(assignmentTotal * 100) === 10000
+  const setPrimaryAssignment = (userId: string) => {
+    setAssignedUserId(userId)
+    setAssignments([{ userId, shareRate: 100 }])
+  }
+  const updateAssignment = (index: number, patch: Partial<AssignmentDraft>) => {
+    setAssignments(prev => prev.map((assignment, i) => i === index ? { ...assignment, ...patch } : assignment))
+  }
+  const addAssignment = () => {
+    const remaining = Math.max(0, 100 - assignmentTotal)
+    setAssignments(prev => [...prev, { userId: "", shareRate: remaining }])
+  }
+  const removeAssignment = (index: number) => {
+    setAssignments(prev => {
+      const next = prev.filter((_, i) => i !== index)
+      return next.length > 0 ? next : [{ userId: "", shareRate: 100 }]
+    })
+  }
 
   const handleOcrFile = async (file: File) => {
     console.log("[OCR] file received:", file.name, file.type, file.size)
@@ -160,7 +187,7 @@ export default function NewInvoicePage() {
         filled.add("taxRate")
       }
       if (e.assignedUser?.value) {
-        setAssignedUserId(e.assignedUser.value)
+        setPrimaryAssignment(e.assignedUser.value)
         filled.add("assignedUserId")
       }
       // 取引先名で部分一致マッチング（vendorName / customerName）
@@ -319,10 +346,14 @@ export default function NewInvoicePage() {
     setSubmitting(true)
     setError("")
     try {
+      if (!assignmentTotalValid) {
+        throw new Error("担当者の売上割合の合計は100%にしてください")
+      }
       const payload = {
         invoiceNumber:  data.invoiceNumber,
         companyId:      data.companyId,
-        assignedUserId: assignedUserId || undefined,
+        assignedUserId: normalizedAssignments[0]?.userId || assignedUserId || undefined,
+        assignments:    normalizedAssignments,
         subject:        data.subject,
         issueDate:     data.issueDate,
         dueDate:       data.dueDate,
@@ -524,13 +555,64 @@ export default function NewInvoicePage() {
                 <label className="form-label !mb-0">担当者</label>
                 {ocrFields.has("assignedUserId") && <span className="text-[10px] text-emerald-600 font-medium">OCR</span>}
               </div>
-              <select className={`form-input ${ocrFields.has("assignedUserId") ? "border-emerald-300 bg-emerald-50" : ""}`} value={assignedUserId}
-                onChange={e => setAssignedUserId(e.target.value)}>
+              <select className="hidden" value={assignedUserId}
+                onChange={e => setPrimaryAssignment(e.target.value)}>
                 <option value="">未設定</option>
                 {adminUsers.map(u => (
                   <option key={u.id} value={u.id}>{u.name}</option>
                 ))}
               </select>
+              <div className="mt-2 space-y-2">
+                {assignments.map((assignment, index) => (
+                  <div key={index} className="grid grid-cols-[1fr_88px_auto] gap-2">
+                    <select
+                      className="form-input"
+                      value={assignment.userId}
+                      onChange={e => {
+                        updateAssignment(index, { userId: e.target.value })
+                        if (index === 0) setAssignedUserId(e.target.value)
+                      }}
+                    >
+                      <option value="">未設定</option>
+                      {adminUsers.map(u => (
+                        <option key={u.id} value={u.id}>{u.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={1}
+                      className="form-input text-right tabular-nums"
+                      value={assignment.shareRate}
+                      onChange={e => updateAssignment(index, { shareRate: Number(e.target.value) || 0 })}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeAssignment(index)}
+                      disabled={assignments.length === 1}
+                      className="px-3 py-2 text-[12px] rounded-lg border border-navy-200 text-navy-500 hover:bg-navy-50 disabled:opacity-40 transition-colors"
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={addAssignment}
+                  className="text-[12px] font-medium text-navy-600 hover:text-navy-900"
+                >
+                  + 担当者を追加
+                </button>
+                <span className={`text-[12px] font-medium ${assignmentTotalValid ? "text-navy-500" : "text-red-600"}`}>
+                  合計 {assignmentTotal.toFixed(0)}%
+                </span>
+              </div>
+              {!assignmentTotalValid && (
+                <p className="mt-1 text-[11px] text-red-600">売上割合の合計を100%にしてください。</p>
+              )}
             </div>
           </div>
 

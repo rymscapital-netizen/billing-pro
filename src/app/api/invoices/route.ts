@@ -57,8 +57,8 @@ export async function GET(req: NextRequest) {
     // ADMINは常に見える。CLIENTは "issued" ビューのみ
     const includeProfit = u.role === "ADMIN" || view === "issued"
     const selectFields = includeProfit
-      ? "*, company:Company!companyId(id,name), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!assignedUserId(id,name)"
-      : "*, company:Company!companyId(id,name), payments:InvoicePayment(*), assignedUser:User!assignedUserId(id,name)"
+      ? "*, company:Company!companyId(id,name), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!assignedUserId(id,name), assignments:InvoiceAssignment(*, user:User!userId(id,name))"
+      : "*, company:Company!companyId(id,name), payments:InvoicePayment(*), assignedUser:User!assignedUserId(id,name), assignments:InvoiceAssignment(*, user:User!userId(id,name))"
 
     let q = sb.from("Invoice").select(selectFields).order("dueDate", { ascending: true })
 
@@ -66,7 +66,16 @@ export async function GET(req: NextRequest) {
       // 管理者: 自社が発行した請求書のみ（issuerCompanyId でテナント分離）
       q = q.eq("issuerCompanyId", u.companyId)
       if (filterCompanyId) q = q.eq("companyId", filterCompanyId)
-      if (filterUserId)    q = q.eq("assignedUserId", filterUserId)
+      if (filterUserId) {
+        const { data: assignmentRows, error: assignmentError } = await sb.from("InvoiceAssignment")
+          .select("invoiceId")
+          .eq("userId", filterUserId)
+        if (assignmentError) throw new Error(assignmentError.message)
+        const invoiceIds = [...new Set((assignmentRows ?? []).map((row: any) => row.invoiceId).filter(Boolean))]
+        q = invoiceIds.length > 0
+          ? (q as any).or(`assignedUserId.eq.${filterUserId},id.in.(${invoiceIds.join(",")})`)
+          : q.eq("assignedUserId", filterUserId)
+      }
     } else {
       // 取引先: issued=自分が発行, received=自分宛
       if (view === "issued") {
@@ -104,6 +113,10 @@ export async function GET(req: NextRequest) {
       payments:     Array.isArray(r.payments)     ? r.payments                  : [],
       company:      Array.isArray(r.company)      ? (r.company[0]      ?? null) : r.company,
       assignedUser: Array.isArray(r.assignedUser) ? (r.assignedUser[0] ?? null) : r.assignedUser,
+      assignments:  Array.isArray(r.assignments)  ? r.assignments.map((a: any) => ({
+        ...a,
+        user: Array.isArray(a.user) ? (a.user[0] ?? null) : a.user,
+      })) : [],
     }))
 
     return NextResponse.json(rows)
@@ -117,6 +130,10 @@ const createSchema = z.object({
   invoiceNumber:  z.string().min(1),
   companyId:      z.string().min(1),
   assignedUserId: z.string().optional(),
+  assignments: z.array(z.object({
+    userId: z.string().min(1),
+    shareRate: z.number().min(0).max(100),
+  })).optional(),
   subject:        z.string().min(1),
   issueDate:      z.string(),
   dueDate:        z.string(),
@@ -138,13 +155,15 @@ export async function POST(req: NextRequest) {
   const body = createSchema.parse(await req.json())
   const amount = body.subtotal + body.tax
   const u = session.user as any
+  const assignments = normalizeAssignments(body.assignments, body.assignedUserId)
+  const primaryAssignedUserId = assignments[0]?.userId ?? body.assignedUserId ?? null
 
   const invoice = await (prisma.invoice.create as any)({
     data: {
       invoiceNumber:   body.invoiceNumber,
       companyId:       body.companyId,
       issuerCompanyId: u.companyId,
-      assignedUserId:  body.assignedUserId ?? null,
+      assignedUserId:  primaryAssignedUserId,
       subject:         body.subject,
       issueDate:       new Date(body.issueDate),
       dueDate:         new Date(body.dueDate),
@@ -167,6 +186,17 @@ export async function POST(req: NextRequest) {
     },
     include: { company: true, profit: true, payments: true },
   })
+
+  if (assignments.length > 0) {
+    await prisma.invoiceAssignment.createMany({
+      data: assignments.map(assignment => ({
+        invoiceId: invoice.id,
+        userId: assignment.userId,
+        shareRate: assignment.shareRate,
+      })),
+      skipDuplicates: true,
+    })
+  }
 
   // 受取側（companyId）に ReceivedInvoice を自動生成
   // 発行者と受取先が異なる会社の場合のみ（自社宛は不要）
@@ -199,4 +229,26 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json(invoice, { status: 201 })
+}
+
+function normalizeAssignments(
+  assignments: { userId?: string; shareRate?: number }[] | undefined,
+  assignedUserId?: string
+) {
+  const source = assignments?.length
+    ? assignments
+    : assignedUserId
+      ? [{ userId: assignedUserId, shareRate: 100 }]
+      : []
+  const merged = new Map<string, number>()
+  for (const assignment of source) {
+    if (!assignment.userId) continue
+    merged.set(assignment.userId, (merged.get(assignment.userId) ?? 0) + Number(assignment.shareRate ?? 0))
+  }
+  const rows = Array.from(merged.entries()).map(([userId, shareRate]) => ({ userId, shareRate }))
+  const total = rows.reduce((sum, row) => sum + row.shareRate, 0)
+  if (rows.length > 0 && Math.round(total * 100) !== 10000) {
+    throw new Error("担当者の売上割合の合計は100%にしてください")
+  }
+  return rows
 }

@@ -19,11 +19,36 @@ function normalizeInvoice(row: any) {
     assignedUser: Array.isArray(row.assignedUser)
       ? (row.assignedUser[0] ?? null)
       : row.assignedUser,
+    assignments: Array.isArray(row.assignments)
+      ? row.assignments.map((assignment: any) => ({
+          ...assignment,
+          user: Array.isArray(assignment.user) ? (assignment.user[0] ?? null) : assignment.user,
+        }))
+      : [],
   }
 }
 
 const invoiceSelect =
-  "*, company:Company!companyId(*), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!assignedUserId(id,name)"
+  "*, company:Company!companyId(*), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!assignedUserId(id,name), assignments:InvoiceAssignment(*, user:User!userId(id,name))"
+
+function normalizeAssignments(assignments: { userId?: string; shareRate?: number }[] | undefined, assignedUserId?: string | null) {
+  const source = assignments?.length
+    ? assignments
+    : assignedUserId
+      ? [{ userId: assignedUserId, shareRate: 100 }]
+      : []
+  const merged = new Map<string, number>()
+  for (const assignment of source) {
+    if (!assignment.userId) continue
+    merged.set(assignment.userId, (merged.get(assignment.userId) ?? 0) + Number(assignment.shareRate ?? 0))
+  }
+  const rows = Array.from(merged.entries()).map(([userId, shareRate]) => ({ userId, shareRate }))
+  const total = rows.reduce((sum, row) => sum + row.shareRate, 0)
+  if (rows.length > 0 && Math.round(total * 100) !== 10000) {
+    throw new Error("担当者の売上割合の合計は100%にしてください")
+  }
+  return rows
+}
 
 export async function GET(
   _req: NextRequest,
@@ -95,7 +120,12 @@ export async function PATCH(
   if (body.issueDate !== undefined) data.issueDate = new Date(body.issueDate).toISOString()
   if (body.dueDate !== undefined) data.dueDate = new Date(body.dueDate).toISOString()
   if (body.notes !== undefined) data.notes = body.notes || null
-  if (body.assignedUserId !== undefined) data.assignedUserId = body.assignedUserId || null
+  const normalizedAssignments = body.assignments !== undefined
+    ? normalizeAssignments(body.assignments, body.assignedUserId)
+    : null
+  if (body.assignedUserId !== undefined || normalizedAssignments) {
+    data.assignedUserId = normalizedAssignments?.[0]?.userId ?? body.assignedUserId ?? null
+  }
   if (body.subtotal !== undefined) {
     const tax = body.tax ?? 0
     data.subtotal = body.subtotal
@@ -113,6 +143,27 @@ export async function PATCH(
   if (!updatedRow) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   let updated = normalizeInvoice(updatedRow)
+
+  if (normalizedAssignments) {
+    const now = new Date().toISOString()
+    const { error: deleteAssignmentsError } = await sb.from("InvoiceAssignment")
+      .delete()
+      .eq("invoiceId", id)
+    if (deleteAssignmentsError) return NextResponse.json({ error: deleteAssignmentsError.message }, { status: 500 })
+    if (normalizedAssignments.length > 0) {
+      const { error: insertAssignmentsError } = await sb.from("InvoiceAssignment")
+        .insert(normalizedAssignments.map(assignment => ({
+          id: crypto.randomUUID(),
+          invoiceId: id,
+          userId: assignment.userId,
+          shareRate: assignment.shareRate,
+          createdAt: now,
+          updatedAt: now,
+        })))
+      if (insertAssignmentsError) return NextResponse.json({ error: insertAssignmentsError.message }, { status: 500 })
+    }
+    updated.assignments = normalizedAssignments.map(assignment => ({ ...assignment, invoiceId: id }))
+  }
 
   if (body.cost !== undefined || body.sales !== undefined) {
     const sales = body.sales !== undefined

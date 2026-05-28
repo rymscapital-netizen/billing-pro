@@ -253,6 +253,117 @@ function addInvoiceToGroups(
   groups.set(userId, current)
 }
 
+function normalizeInvoiceAssignments(row: any, fallbackAssignedUser: any) {
+  const rawAssignments = Array.isArray(row.assignments) ? row.assignments : []
+  const assignments = rawAssignments
+    .map((assignment: any) => {
+      const user = Array.isArray(assignment.user) ? assignment.user[0] : assignment.user
+      return {
+        userId: assignment.userId ?? user?.id,
+        userName: user?.name ?? "未設定",
+        commissionRate: toNumber(user?.commissionRate),
+        shareRate: toNumber(assignment.shareRate),
+      }
+    })
+    .filter((assignment: any) => assignment.userId && assignment.shareRate > 0)
+
+  if (assignments.length > 0) return assignments
+
+  if (fallbackAssignedUser?.id) {
+    return [{
+      userId: fallbackAssignedUser.id,
+      userName: fallbackAssignedUser.name ?? "未設定",
+      commissionRate: toNumber(fallbackAssignedUser.commissionRate),
+      shareRate: 100,
+    }]
+  }
+
+  return [{
+    userId: "unassigned",
+    userName: "未設定",
+    commissionRate: 0,
+    shareRate: 100,
+  }]
+}
+
+function addInvoiceToGroupsByAssignments(
+  groups: Map<string, any>,
+  row: any,
+  options: { basisDate: string | null; confirmedAmount: number; visibleUserId?: string | null }
+) {
+  const assignedUser = Array.isArray(row.assignedUser) ? row.assignedUser[0] : row.assignedUser
+  const company = Array.isArray(row.company) ? row.company[0] : row.company
+  const profit = Array.isArray(row.profit) ? row.profit[0] : row.profit
+  const assignments = normalizeInvoiceAssignments(row, assignedUser)
+  const sales = profit ? toNumber(profit.sales) : toNumber(row.subtotal)
+  const cost = profit ? toNumber(profit.cost) : 0
+  const grossProfit = profit ? toNumber(profit.grossProfit) : sales - cost
+  const amount = toNumber(row.amount)
+  const confirmedAmount = options.confirmedAmount
+
+  for (const assignment of assignments) {
+    if (options.visibleUserId && assignment.userId !== options.visibleUserId) continue
+
+    const share = assignment.shareRate / 100
+    const userId = assignment.userId
+    const userName = assignment.userName
+    const commissionRate = assignment.commissionRate
+    const assignedSales = sales * share
+    const assignedCost = cost * share
+    const assignedGrossProfit = grossProfit * share
+    const assignedAmount = amount * share
+    const assignedConfirmedAmount = confirmedAmount * share
+    const commissionAmount = assignedGrossProfit * (commissionRate / 100)
+    const subjectSuffix = assignment.shareRate === 100 ? "" : `（${assignment.shareRate}%）`
+
+    const current = groups.get(userId) ?? {
+      userId,
+      userName,
+      commissionRate,
+      sales: 0,
+      cost: 0,
+      grossProfit: 0,
+      commissionAmount: 0,
+      amount: 0,
+      confirmedAmount: 0,
+      unconfirmedAmount: 0,
+      invoiceCount: 0,
+      missingProfitCount: 0,
+      items: [],
+    }
+
+    current.sales += assignedSales
+    current.cost += assignedCost
+    current.grossProfit += assignedGrossProfit
+    current.commissionAmount += commissionAmount
+    current.amount += assignedAmount
+    current.confirmedAmount += assignedConfirmedAmount
+    current.unconfirmedAmount += Math.max(assignedAmount - assignedConfirmedAmount, 0)
+    current.invoiceCount += 1
+    if (!profit) current.missingProfitCount += 1
+    current.items.push({
+      id: row.id,
+      invoiceNumber: row.invoiceNumber,
+      companyName: company?.name ?? "未設定",
+      subject: `${row.subject}${subjectSuffix}`,
+      issueDate: row.issueDate,
+      dueDate: row.dueDate,
+      paymentDate: options.basisDate,
+      sales: assignedSales,
+      cost: assignedCost,
+      grossProfit: assignedGrossProfit,
+      commissionRate,
+      commissionAmount,
+      amount: assignedAmount,
+      status: row.status,
+      hasProfit: Boolean(profit),
+      shareRate: assignment.shareRate,
+    })
+
+    groups.set(userId, current)
+  }
+}
+
 function applyExpensesToGroups(groups: any[], expensesByUserId: Map<string, any>) {
   return groups.map(group => {
     const expense = applyCorporateEffectiveTax(expensesByUserId.get(group.userId), group.grossProfit)
@@ -310,7 +421,12 @@ function sortGroups(groups: Map<string, any>, expensesByUserId = new Map<string,
     .sort((a, b) => b.grossProfit - a.grossProfit)
 }
 
-function groupDueInvoices(rows: any[], expensesByUserId = new Map<string, any>(), users: any[] = []) {
+function groupDueInvoices(
+  rows: any[],
+  expensesByUserId = new Map<string, any>(),
+  users: any[] = [],
+  visibleUserId: string | null = null
+) {
   const groups = new Map<string, any>()
 
   for (const row of rows) {
@@ -321,9 +437,10 @@ function groupDueInvoices(rows: any[], expensesByUserId = new Map<string, any>()
           .filter((payment: any) => payment.paymentStatus === "CONFIRMED")
           .reduce((sum: number, payment: any) => sum + toNumber(payment.paymentAmount), 0)
 
-    addInvoiceToGroups(groups, row, {
+    addInvoiceToGroupsByAssignments(groups, row, {
       basisDate: row.dueDate,
       confirmedAmount,
+      visibleUserId,
     })
   }
 
@@ -455,7 +572,7 @@ function buildHistoryWithRent(
     const monthExpenses = applyOfficeRentToExpenses(expensesByMonth.get(key) ?? [], users, key, officeRent, officeRentStartDate)
       .filter((expense: any) => !visibleUserId || expense.userId === visibleUserId)
     const expensesByUserId = new Map<string, any>(monthExpenses.map((expense: any) => [expense.userId, expense]))
-    const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? [], expensesByUserId, users))
+    const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? [], expensesByUserId, users, visibleUserId))
 
     return {
       month: key,
@@ -570,7 +687,7 @@ export async function GET(req: NextRequest) {
     const fiscalMonthKeys = fiscalMonths.map(formatYearMonth)
 
     let query: any = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, tax, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, tax, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), assignments:InvoiceAssignment(*, user:User!userId(id, name, commissionRate, employmentStartDate)), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", start)
@@ -578,17 +695,12 @@ export async function GET(req: NextRequest) {
       .order("dueDate", { ascending: false })
 
     let historyQuery: any = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, tax, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, tax, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), assignments:InvoiceAssignment(*, user:User!userId(id, name, commissionRate, employmentStartDate)), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", fiscalStart)
       .lt("dueDate", fiscalEndExclusive)
       .order("dueDate", { ascending: false })
-
-    if (effectiveAssignedUserId) {
-      query = query.eq("assignedUserId", effectiveAssignedUserId)
-      historyQuery = historyQuery.eq("assignedUserId", effectiveAssignedUserId)
-    }
 
     let usersQuery: any = sb.from("User")
       .select(profitUserSelect)
@@ -669,7 +781,7 @@ export async function GET(req: NextRequest) {
     const currentExpenses = applyOfficeRentToExpenses(expenses ?? [], rentUsers, yearMonth, officeRent, officeRentStartDate)
       .filter((expense: any) => !effectiveAssignedUserId || expense.userId === effectiveAssignedUserId)
     const expensesByUserId = new Map<string, any>(currentExpenses.map((expense: any) => [expense.userId, expense]))
-    const groups = groupDueInvoices(data ?? [], expensesByUserId, users)
+    const groups = groupDueInvoices(data ?? [], expensesByUserId, users, effectiveAssignedUserId)
     const totals = buildTotals(groups)
     const groupExpenses = groups.map(group => group.expenses).filter(Boolean)
     const history = buildHistoryWithRent(historyRows ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, officeRentStartDate, effectiveAssignedUserId)
