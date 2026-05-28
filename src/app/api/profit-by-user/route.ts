@@ -25,6 +25,7 @@ function parseMonth(value: string | null) {
 }
 
 const toNumber = (value: unknown) => Number(value ?? 0)
+const CORPORATE_EFFECTIVE_TAX_RATE = 0.3064
 
 const expenseFields = [
   "baseSalary",
@@ -74,6 +75,13 @@ function normalizeExpense(expense: any) {
   for (const field of referenceDeductionFields) normalized[field] = toNumber(expense?.[field])
   normalized.totalExpense = calculateExpenseTotal(expense)
   normalized.totalDeductionReference = referenceDeductionFields.reduce((sum, field) => sum + toNumber(expense?.[field]), 0)
+  return normalized
+}
+
+function applyCorporateEffectiveTax(expense: any, grossProfit: number) {
+  const normalized = normalizeExpense(expense)
+  normalized.corporateTax = Math.round(Math.max(grossProfit, 0) * CORPORATE_EFFECTIVE_TAX_RATE)
+  normalized.totalExpense = calculateExpenseTotal(normalized)
   return normalized
 }
 
@@ -227,7 +235,7 @@ function addInvoiceToGroups(
 
 function applyExpensesToGroups(groups: any[], expensesByUserId: Map<string, any>) {
   return groups.map(group => {
-    const expense = normalizeExpense(expensesByUserId.get(group.userId))
+    const expense = applyCorporateEffectiveTax(expensesByUserId.get(group.userId), group.grossProfit)
     return {
       ...group,
       expenses: expense,
@@ -242,7 +250,7 @@ function addExpenseOnlyGroups(groups: any[], users: any[], expensesByUserId: Map
   const additionalGroups = users
     .filter(user => expensesByUserId.has(user.id) && !existingUserIds.has(user.id))
     .map(user => {
-      const expense = normalizeExpense(expensesByUserId.get(user.id))
+      const expense = applyCorporateEffectiveTax(expensesByUserId.get(user.id), 0)
       return {
         userId: user.id,
         userName: user.name,
@@ -639,6 +647,7 @@ export async function GET(req: NextRequest) {
     const expensesByUserId = new Map<string, any>(currentExpenses.map((expense: any) => [expense.userId, expense]))
     const groups = groupDueInvoices(data ?? [], expensesByUserId, users)
     const totals = buildTotals(groups)
+    const groupExpenses = groups.map(group => group.expenses).filter(Boolean)
     const history = buildHistoryWithRent(historyRows ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, officeRentStartDate, effectiveAssignedUserId)
     const fiscalSummary = buildFiscalSummary({
       rows: historyRows ?? [],
@@ -658,7 +667,7 @@ export async function GET(req: NextRequest) {
       canViewAllUsers,
       totals,
       groups,
-      expenses: currentExpenses.map(normalizeExpense),
+      expenses: groupExpenses,
       officeRent,
       officeRentStartDate,
       effectiveOfficeRent,

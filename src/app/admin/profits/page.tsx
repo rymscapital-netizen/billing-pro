@@ -176,7 +176,7 @@ const expenseFields: { key: keyof UserExpense; label: string }[] = [
   { key: "rentAllocation", label: "家賃按分" },
   { key: "paidCommission", label: "支払歩合" },
   { key: "travelExpense", label: "交通費等" },
-  { key: "corporateTax", label: "法人実効税額" },
+  { key: "corporateTax", label: "法人実効税額（30.64%）" },
   { key: "communicationCost", label: "通信費" },
   { key: "welfareExpense", label: "福利厚生" },
   { key: "suppliesExpense", label: "備品・消耗品" },
@@ -689,11 +689,19 @@ export default function AdminProfitsPage() {
                         step={1}
                         value={Number(form[field.key] ?? 0)}
                         onChange={event => updateExpenseField(user.id, field.key, event.target.value)}
-                        readOnly={field.key === "rentAllocation" && hasAutomaticOfficeRent}
+                        readOnly={
+                          field.key === "corporateTax" ||
+                          (field.key === "rentAllocation" && hasAutomaticOfficeRent)
+                        }
                         className={`form-input text-right tabular-nums ${
-                          field.key === "rentAllocation" && hasAutomaticOfficeRent ? "bg-navy-50 text-navy-500" : ""
+                          field.key === "corporateTax" || (field.key === "rentAllocation" && hasAutomaticOfficeRent)
+                            ? "bg-navy-50 text-navy-500"
+                            : ""
                         }`}
                       />
+                      {field.key === "corporateTax" && (
+                        <span className="block text-[10.5px] text-navy-400 mt-1">粗利から自動計算</span>
+                      )}
                       {field.key === "rentAllocation" && hasAutomaticOfficeRent && (
                         <span className="block text-[10.5px] text-navy-400 mt-1">自動按分</span>
                       )}
