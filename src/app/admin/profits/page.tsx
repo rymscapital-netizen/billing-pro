@@ -526,7 +526,7 @@ export default function AdminProfitsPage() {
         </div>
       </section>
 
-      <section className="space-y-3">
+      <section className="space-y-3 rounded-xl border border-gold-200 bg-gold-50/55 p-4 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-[15px] font-semibold text-navy-900">目標</h2>
