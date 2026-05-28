@@ -107,6 +107,23 @@ type ProfitTotals = {
   profitRate: number
 }
 
+type FiscalSummary = {
+  startMonth: string
+  endMonth: string
+  sales: number
+  cost: number
+  grossProfit: number
+  totalExpense: number
+  retainedProfit: number
+  commissionAmount: number
+  salesTax: number
+  purchaseTax: number
+  consumptionTaxBalance: number
+  invoiceCount: number
+  missingProfitCount: number
+  profitRate: number
+}
+
 type ProfitData = {
   users: { id: string; name: string; commissionRate: number }[]
   canViewAllUsers: boolean
@@ -114,6 +131,7 @@ type ProfitData = {
   groups: ProfitGroup[]
   expenses: UserExpense[]
   officeRent: number
+  fiscalSummary: FiscalSummary
   history: ProfitHistory[]
   fiscalYear: {
     startMonth: string
@@ -131,6 +149,7 @@ const yenShort = (value: number) => {
   return `${sign}¥${absolute.toLocaleString("ja-JP")}`
 }
 const pct = (value: number) => `${Number(value ?? 0).toFixed(1)}%`
+const fiscalPeriod = (summary?: FiscalSummary) => summary ? `${summary.startMonth} - ${summary.endMonth}` : ""
 const blankExpense = (userId: string, yearMonth: string): UserExpense => ({
   userId,
   yearMonth,
@@ -425,6 +444,57 @@ export default function AdminProfitsPage() {
           </button>
         </div>
       </div>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-[15px] font-semibold text-navy-900">決算期累計</h2>
+            <p className="text-[12px] text-navy-400 mt-1">
+              {data ? `${fiscalPeriod(data.fiscalSummary)} / 選択月までの累計` : "読み込み中"}
+            </p>
+          </div>
+          <p className="text-[12px] text-navy-400">
+            {assignedUserId ? "選択中の担当者のみ" : "全担当者"}
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <SummaryCard
+            label="累計売上"
+            value={data ? yen(data.fiscalSummary.sales) : "..."}
+            note={data ? `${data.fiscalSummary.invoiceCount}件 / 税抜売上` : undefined}
+            tone="blue"
+            icon={<Wallet size={18} />}
+          />
+          <SummaryCard
+            label="累計粗利"
+            value={data ? yen(data.fiscalSummary.grossProfit) : "..."}
+            note={data ? `粗利率 ${pct(data.fiscalSummary.profitRate)}` : undefined}
+            tone="green"
+            icon={<TrendingUp size={18} />}
+          />
+          <SummaryCard
+            label="累計経費"
+            value={data ? yen(data.fiscalSummary.totalExpense) : "..."}
+            note="人件費・家賃按分・月次経費"
+            tone="amber"
+            icon={<Calculator size={18} />}
+          />
+          <SummaryCard
+            label="現時点利益"
+            value={data ? yen(data.fiscalSummary.retainedProfit) : "..."}
+            note="粗利 - 経費"
+            tone={data && data.fiscalSummary.retainedProfit >= 0 ? "green" : "amber"}
+            icon={<TrendingUp size={18} />}
+          />
+          <SummaryCard
+            label="消費税差額"
+            value={data ? yen(data.fiscalSummary.consumptionTaxBalance) : "..."}
+            note={data ? `預り ${yen(data.fiscalSummary.salesTax)} - 支払 ${yen(data.fiscalSummary.purchaseTax)}` : undefined}
+            tone={data && data.fiscalSummary.consumptionTaxBalance >= 0 ? "navy" : "blue"}
+            icon={<CheckCircle2 size={18} />}
+          />
+        </div>
+      </section>
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">

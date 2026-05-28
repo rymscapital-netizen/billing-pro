@@ -428,6 +428,77 @@ function buildHistoryWithRent(rows: any[], monthStarts: Date[], expenses: any[],
   })
 }
 
+function calculateIncludedTax(totalAmount: unknown) {
+  const amount = toNumber(totalAmount)
+  if (amount <= 0) return 0
+  return amount - Math.round(amount / 1.1)
+}
+
+function buildFiscalSummary(params: {
+  rows: any[]
+  receivedRows: any[]
+  expenses: any[]
+  users: any[]
+  officeRent: number
+  monthStarts: Date[]
+  selectedYearMonth: string
+  visibleUserId: string | null
+}) {
+  const monthKeys = params.monthStarts
+    .map(formatYearMonth)
+    .filter(key => key <= params.selectedYearMonth)
+  const monthKeySet = new Set(monthKeys)
+  const rows = params.rows.filter(row => monthKeySet.has(formatJstYearMonth(row.dueDate)))
+  const receivedRows = params.receivedRows.filter(row => monthKeySet.has(formatJstYearMonth(row.dueDate)))
+  const expenses = params.expenses.filter(expense => monthKeySet.has(expense.yearMonth))
+  const monthly = buildHistoryWithRent(
+    rows,
+    params.monthStarts.filter(month => monthKeys.includes(formatYearMonth(month))),
+    expenses,
+    params.users,
+    params.officeRent,
+    params.visibleUserId
+  )
+  const totals = monthly.reduce((sum, row) => ({
+    sales: sum.sales + row.sales,
+    cost: sum.cost + row.cost,
+    grossProfit: sum.grossProfit + row.grossProfit,
+    commissionAmount: sum.commissionAmount + row.commissionAmount,
+    totalExpense: sum.totalExpense + row.totalExpense,
+    retainedProfit: sum.retainedProfit + row.retainedProfit,
+    invoiceCount: sum.invoiceCount + row.invoiceCount,
+    missingProfitCount: sum.missingProfitCount + row.missingProfitCount,
+  }), {
+    sales: 0,
+    cost: 0,
+    grossProfit: 0,
+    commissionAmount: 0,
+    totalExpense: 0,
+    retainedProfit: 0,
+    invoiceCount: 0,
+    missingProfitCount: 0,
+  })
+  const salesTax = rows.reduce((sum, row) => sum + toNumber(row.tax), 0)
+  const purchaseTax = receivedRows.reduce((sum, row) => sum + calculateIncludedTax(row.amount), 0)
+
+  return {
+    startMonth: monthKeys[0] ?? params.selectedYearMonth,
+    endMonth: monthKeys[monthKeys.length - 1] ?? params.selectedYearMonth,
+    sales: totals.sales,
+    cost: totals.cost,
+    grossProfit: totals.grossProfit,
+    totalExpense: totals.totalExpense,
+    retainedProfit: totals.retainedProfit,
+    commissionAmount: totals.commissionAmount,
+    salesTax,
+    purchaseTax,
+    consumptionTaxBalance: salesTax - purchaseTax,
+    invoiceCount: totals.invoiceCount,
+    missingProfitCount: totals.missingProfitCount,
+    profitRate: totals.sales > 0 ? (totals.grossProfit / totals.sales) * 100 : 0,
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await auth()
@@ -449,7 +520,7 @@ export async function GET(req: NextRequest) {
     const fiscalMonthKeys = fiscalMonths.map(formatYearMonth)
 
     let query: any = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, tax, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", start)
@@ -457,7 +528,7 @@ export async function GET(req: NextRequest) {
       .order("dueDate", { ascending: false })
 
     let historyQuery: any = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, tax, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", fiscalStart)
@@ -502,6 +573,16 @@ export async function GET(req: NextRequest) {
       historyExpensesQuery = historyExpensesQuery.eq("userId", effectiveAssignedUserId)
     }
 
+    let receivedTaxQuery: any = sb.from("ReceivedInvoice")
+      .select("id, amount, dueDate, assignedUserId")
+      .eq("ownerCompanyId", session.user.companyId)
+      .gte("dueDate", fiscalStart)
+      .lt("dueDate", fiscalEndExclusive)
+
+    if (effectiveAssignedUserId) {
+      receivedTaxQuery = receivedTaxQuery.eq("assignedUserId", effectiveAssignedUserId)
+    }
+
     const [
       { data, error },
       { data: historyRows, error: historyError },
@@ -510,6 +591,7 @@ export async function GET(req: NextRequest) {
       { data: expenses, error: expensesError },
       { data: historyExpenses, error: historyExpensesError },
       { data: companySettings, error: companySettingsError },
+      { data: receivedTaxRows, error: receivedTaxError },
     ] = await Promise.all([
       query,
       historyQuery,
@@ -518,6 +600,7 @@ export async function GET(req: NextRequest) {
       expensesQuery,
       historyExpensesQuery,
       sb.from("Company").select("officeRent").eq("id", session.user.companyId).maybeSingle(),
+      receivedTaxQuery,
     ])
     if (error) throw new Error(error.message)
     if (historyError) throw new Error(historyError.message)
@@ -526,6 +609,7 @@ export async function GET(req: NextRequest) {
     if (expensesError) throw new Error(expensesError.message)
     if (historyExpensesError) throw new Error(historyExpensesError.message)
     if (companySettingsError) throw new Error(companySettingsError.message)
+    if (receivedTaxError) throw new Error(receivedTaxError.message)
 
     const users = userRows ?? []
     const rentUsers = rentUserRows ?? users
@@ -535,6 +619,17 @@ export async function GET(req: NextRequest) {
     const expensesByUserId = new Map<string, any>(currentExpenses.map((expense: any) => [expense.userId, expense]))
     const groups = groupDueInvoices(data ?? [], expensesByUserId, users)
     const totals = buildTotals(groups)
+    const history = buildHistoryWithRent(historyRows ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, effectiveAssignedUserId)
+    const fiscalSummary = buildFiscalSummary({
+      rows: historyRows ?? [],
+      receivedRows: receivedTaxRows ?? [],
+      expenses: historyExpenses ?? [],
+      users: rentUsers,
+      officeRent,
+      monthStarts: fiscalMonths,
+      selectedYearMonth: yearMonth,
+      visibleUserId: effectiveAssignedUserId,
+    })
 
     return NextResponse.json({
       month: yearMonth,
@@ -548,7 +643,8 @@ export async function GET(req: NextRequest) {
         startMonth: formatYearMonth(fiscalMonths[0]),
         endMonth: formatYearMonth(fiscalMonths[11]),
       },
-      history: buildHistoryWithRent(historyRows ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, effectiveAssignedUserId),
+      fiscalSummary,
+      history,
     })
   } catch (e: any) {
     console.error("[profit-by-user ERROR]", e?.message ?? e)
