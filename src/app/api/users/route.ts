@@ -39,12 +39,31 @@ const updateSchema = z.object({
 })
 
 const userSelect = "id, name, email, role, companyId, isActive, commissionRate, employmentStartDate, defaultBaseSalary, defaultSocialInsurance, defaultEmployeeSocialInsurance, defaultWithholdingTax, defaultTravelExpense, defaultCommunicationCost, defaultWelfareExpense, defaultSuppliesExpense, createdAt, updatedAt"
+const userDisplayOrder = ["浪田", "西岡", "入内嶋", "髙橋", "高橋"]
 
 function getSb() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_KEY!
   )
+}
+
+function canViewAllUsers(user: any) {
+  return String(user?.name ?? "").includes("浪田")
+}
+
+function userSortRank(name: string) {
+  const normalized = String(name ?? "")
+  const index = userDisplayOrder.findIndex(orderName => normalized.includes(orderName))
+  return index === -1 ? userDisplayOrder.length : index
+}
+
+function sortUsers(users: any[]) {
+  return [...users].sort((a, b) => {
+    const rankDiff = userSortRank(a.name) - userSortRank(b.name)
+    if (rankDiff !== 0) return rankDiff
+    return String(a.name ?? "").localeCompare(String(b.name ?? ""), "ja")
+  })
 }
 
 export async function GET() {
@@ -54,10 +73,13 @@ export async function GET() {
 
   try {
     const sb = getSb()
-    const { data: users, error } = await sb.from("User")
+    let usersQuery: any = sb.from("User")
       .select(userSelect)
       .eq("companyId", u.companyId)
-      .order("createdAt", { ascending: false })
+    if (!canViewAllUsers(u)) {
+      usersQuery = usersQuery.eq("id", u.id)
+    }
+    const { data: users, error } = await usersQuery
     if (error) throw new Error(error.message)
 
     const { data: companies, error: companyError } = await sb.from("Company")
@@ -67,7 +89,7 @@ export async function GET() {
     if (companyError) throw new Error(companyError.message)
 
     const company = companies?.[0] ?? null
-    return NextResponse.json((users ?? []).map(user => ({ ...user, company })))
+    return NextResponse.json(sortUsers(users ?? []).map(user => ({ ...user, company })))
   } catch (e) {
     console.error("[users GET]", e)
     return NextResponse.json([], { status: 200 })
@@ -80,6 +102,10 @@ export async function POST(req: NextRequest) {
 
   const u = session.user as any
   const body = createSchema.parse(await req.json())
+
+  if (body.role === "ADMIN" && !canViewAllUsers(u)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
 
   if (u.role === "CLIENT" && body.companyId !== u.companyId) {
     return NextResponse.json({ error: "自社以外へのスタッフ登録はできません" }, { status: 403 })
@@ -126,6 +152,9 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = updateSchema.parse(await req.json())
+  if (!canViewAllUsers(u)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
   const sb = getSb()
 
   const updates: Record<string, any> = { updatedAt: new Date().toISOString() }

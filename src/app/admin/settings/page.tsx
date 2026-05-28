@@ -1,6 +1,6 @@
 ﻿"use client"
 
-import { Fragment, useState, useEffect } from "react"
+import { Fragment, useMemo, useState, useEffect } from "react"
 import { Building2, UserPlus, Save, Eye, EyeOff, KeyRound } from "lucide-react"
 import { useSession } from "next-auth/react"
 
@@ -26,9 +26,25 @@ const defaultExpenseFields: { key: DefaultExpenseKey; label: string }[] = [
 ]
 
 const blankDefaultExpenses = () => Object.fromEntries(defaultExpenseFields.map(field => [field.key, 0])) as Record<DefaultExpenseKey, number>
+const userDisplayOrder = ["浪田", "西岡", "入内嶋", "髙橋", "高橋"]
+
+function userSortRank(name: string) {
+  const normalized = String(name ?? "")
+  const index = userDisplayOrder.findIndex(orderName => normalized.includes(orderName))
+  return index === -1 ? userDisplayOrder.length : index
+}
+
+function sortUsers(users: any[]) {
+  return [...users].sort((a, b) => {
+    const rankDiff = userSortRank(a.name) - userSortRank(b.name)
+    if (rankDiff !== 0) return rankDiff
+    return String(a.name ?? "").localeCompare(String(b.name ?? ""), "ja")
+  })
+}
 
 export default function SettingsPage() {
   const { data: session, update: updateSession } = useSession()
+  const canManageUsers = String((session?.user as any)?.name ?? "").includes("浪田")
 
   // アカウント設定
   const [acctName,        setAcctName]        = useState("")
@@ -76,6 +92,7 @@ export default function SettingsPage() {
   const [users,        setUsers]        = useState<any[]>([])
   const [commissionSavingId, setCommissionSavingId] = useState("")
   const [commissionSavedId,  setCommissionSavedId]  = useState("")
+  const visibleUsers = useMemo(() => sortUsers(users), [users])
 
   // セッションからアカウント情報を初期化
   useEffect(() => {
@@ -143,7 +160,7 @@ export default function SettingsPage() {
     })
     if (res.ok) {
       const newUser = await res.json()
-      setUsers(prev => [newUser, ...prev])
+      setUsers(prev => sortUsers([newUser, ...prev]))
       setStaffName(""); setStaffEmail(""); setStaffPassword(""); setStaffCommissionRate(0); setStaffEmploymentStartDate(""); setStaffDefaultExpenses(blankDefaultExpenses())
       setStaffAdded(true)
       setTimeout(() => setStaffAdded(false), 3000)
@@ -184,7 +201,7 @@ export default function SettingsPage() {
     })
     if (res.ok) {
       const newUser = await res.json()
-      setUsers(prev => [newUser, ...prev])
+      setUsers(prev => sortUsers([newUser, ...prev]))
       setUserName(""); setUserEmail(""); setUserPassword(""); setUserCompany("")
       setUserAdded(true)
       setTimeout(() => setUserAdded(false), 3000)
@@ -222,7 +239,7 @@ export default function SettingsPage() {
     })
     if (res.ok) {
       const updated = await res.json()
-      setUsers(prev => prev.map(user => user.id === userId ? { ...user, ...updated } : user))
+      setUsers(prev => sortUsers(prev.map(user => user.id === userId ? { ...user, ...updated } : user)))
       setCommissionSavedId(userId)
       setTimeout(() => setCommissionSavedId(""), 2500)
     }
@@ -365,6 +382,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {canManageUsers && (
+      <>
       {/* 自社スタッフ登録 */}
       <div className="bg-white rounded-lg border border-navy-100 p-6">
         <div className="flex items-center gap-2 mb-5">
@@ -531,17 +550,19 @@ export default function SettingsPage() {
           {userAdded && <span className="text-[12px] text-emerald-600">✓ ユーザーを追加しました</span>}
         </div>
       </div>
+      </>
+      )}
 
       {/* ユーザー一覧（法人・担当者） */}
       <div className="bg-white rounded-lg border border-navy-100 overflow-hidden">
         <div className="px-5 py-3.5 border-b border-navy-100 flex items-center justify-between">
           <h2 className="text-[13px] font-medium text-navy-900">登録ユーザー一覧</h2>
-          <span className="text-[11px] text-navy-400">{users.length}名</span>
+          <span className="text-[11px] text-navy-400">{visibleUsers.length}名</span>
         </div>
         {/* 法人グループ別に表示 */}
         {(() => {
           type Group = { companyName: string; members: any[] }
-          const grouped = users.reduce((acc: Record<string, Group>, u: any) => {
+          const grouped = visibleUsers.reduce((acc: Record<string, Group>, u: any) => {
             const key = u.company?.id ?? "unknown"
             if (!acc[key]) acc[key] = { companyName: u.company?.name ?? "不明", members: [] }
             acc[key].members.push(u)
@@ -563,7 +584,7 @@ export default function SettingsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(members as any[]).map((u: any) => (
+                  {sortUsers(members as any[]).map((u: any) => (
                     <Fragment key={u.id}>
                     <tr className="border-b border-navy-100 hover:bg-navy-50">
                       <td className="px-4 py-3 font-medium text-navy-900">{u.name}</td>
@@ -585,17 +606,18 @@ export default function SettingsPage() {
                               step={0.1}
                               value={Number(u.commissionRate ?? 0)}
                               onChange={e => handleCommissionChange(u.id, Number(e.target.value))}
+                              disabled={!canManageUsers}
                               className="w-[82px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400"
                             />
                             <span className="text-[12px] text-navy-400">%</span>
-                            <button
+                            {canManageUsers && <button
                               type="button"
                               onClick={() => handleSaveCommission(u.id)}
                               disabled={commissionSavingId === u.id}
                               className="px-2.5 py-1.5 text-[11px] font-medium border border-navy-200 text-navy-700 rounded-md hover:bg-navy-50 disabled:opacity-50"
                             >
                               {commissionSavingId === u.id ? "保存中" : "保存"}
-                            </button>
+                            </button>}
                             {commissionSavedId === u.id && <span className="text-[11px] text-emerald-600">保存済み</span>}
                           </div>
                         ) : (
@@ -608,6 +630,7 @@ export default function SettingsPage() {
                             type="date"
                             value={u.employmentStartDate ? String(u.employmentStartDate).slice(0, 10) : ""}
                             onChange={e => handleEmploymentStartDateChange(u.id, e.target.value)}
+                            disabled={!canManageUsers}
                             className="w-[135px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] focus:outline-none focus:border-navy-400"
                           />
                         ) : (
@@ -639,6 +662,7 @@ export default function SettingsPage() {
                                   step={1}
                                   value={Number(u[field.key] ?? 0)}
                                   onChange={e => handleDefaultExpenseChange(u.id, field.key, Number(e.target.value))}
+                                  disabled={!canManageUsers}
                                   className="w-full px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400 bg-white"
                                 />
                               </label>
@@ -654,7 +678,7 @@ export default function SettingsPage() {
             </div>
           ))
         })()}
-        {users.length === 0 && (
+        {visibleUsers.length === 0 && (
           <p className="text-center text-navy-400 py-8 text-[13px]">ユーザーがいません</p>
         )}
       </div>
