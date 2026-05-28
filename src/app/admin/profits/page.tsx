@@ -391,6 +391,10 @@ export default function AdminProfitsPage() {
   const groups = useMemo(() => data?.groups ?? [], [data])
   const canViewAllUsers = data?.canViewAllUsers ?? true
   const currentUserName = users[0]?.name ?? ""
+  const expenseUsers = useMemo(
+    () => assignedUserId ? users.filter(user => user.id === assignedUserId) : users,
+    [assignedUserId, users]
+  )
   const chartData = useMemo(() => (data?.history ?? []).map(row => ({
     month: row.label,
     sales: row.sales,
@@ -644,7 +648,9 @@ export default function AdminProfitsPage() {
               担当者ごとに、その月の人件費・共通費・税額を保存できます。
             </p>
           </div>
-          <p className="text-[12px] text-navy-400">{yearMonth}</p>
+          <p className="text-[12px] text-navy-400">
+            {yearMonth}{assignedUserId ? " / 選択中の担当者のみ" : ""}
+          </p>
         </div>
         {data && hasAutomaticOfficeRent && (
           <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-[12px] text-blue-800">
@@ -652,7 +658,7 @@ export default function AdminProfitsPage() {
           </div>
         )}
         <div className="space-y-3">
-          {users.map(user => {
+          {expenseUsers.map(user => {
             const form = expenseForms[user.id] ?? blankExpense(user.id, yearMonth)
             return (
               <div key={user.id} className="card p-4 space-y-3">
