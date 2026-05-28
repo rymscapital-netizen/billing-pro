@@ -39,6 +39,11 @@ const expenseFields = [
   "otherExpense",
 ] as const
 
+const referenceDeductionFields = [
+  "employeeSocialInsurance",
+  "withholdingTax",
+] as const
+
 function calculateExpenseTotal(expense: any) {
   return expenseFields.reduce((sum, field) => sum + toNumber(expense?.[field]), 0)
 }
@@ -51,7 +56,9 @@ function normalizeExpense(expense: any) {
     otherMemo: expense?.otherMemo ?? "",
   }
   for (const field of expenseFields) normalized[field] = toNumber(expense?.[field])
+  for (const field of referenceDeductionFields) normalized[field] = toNumber(expense?.[field])
   normalized.totalExpense = calculateExpenseTotal(expense)
+  normalized.totalDeductionReference = referenceDeductionFields.reduce((sum, field) => sum + toNumber(expense?.[field]), 0)
   return normalized
 }
 

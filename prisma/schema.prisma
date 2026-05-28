@@ -126,6 +126,8 @@ model UserMonthlyExpense {
   yearMonth          String
   baseSalary         Decimal  @default(0) @db.Decimal(14, 0)
   socialInsurance    Decimal  @default(0) @db.Decimal(14, 0)
+  employeeSocialInsurance Decimal @default(0) @db.Decimal(14, 0)
+  withholdingTax     Decimal  @default(0) @db.Decimal(14, 0)
   rentAllocation     Decimal  @default(0) @db.Decimal(14, 0)
   paidCommission     Decimal  @default(0) @db.Decimal(14, 0)
   travelExpense      Decimal  @default(0) @db.Decimal(14, 0)

@@ -1,0 +1,3 @@
+ALTER TABLE "UserMonthlyExpense"
+ADD COLUMN "employeeSocialInsurance" DECIMAL(14,0) NOT NULL DEFAULT 0,
+ADD COLUMN "withholdingTax" DECIMAL(14,0) NOT NULL DEFAULT 0;

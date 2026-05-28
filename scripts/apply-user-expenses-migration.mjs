@@ -43,6 +43,12 @@ await client.query(`
 `)
 
 await client.query(`
+  ALTER TABLE "UserMonthlyExpense"
+  ADD COLUMN IF NOT EXISTS "employeeSocialInsurance" DECIMAL(14,0) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "withholdingTax" DECIMAL(14,0) NOT NULL DEFAULT 0
+`)
+
+await client.query(`
   CREATE INDEX IF NOT EXISTS "UserMonthlyExpense_companyId_yearMonth_idx"
   ON "UserMonthlyExpense"("companyId", "yearMonth")
 `)

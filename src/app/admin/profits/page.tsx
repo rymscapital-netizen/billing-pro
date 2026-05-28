@@ -39,6 +39,8 @@ type UserExpense = {
   yearMonth?: string | null
   baseSalary: number
   socialInsurance: number
+  employeeSocialInsurance: number
+  withholdingTax: number
   rentAllocation: number
   paidCommission: number
   travelExpense: number
@@ -49,6 +51,7 @@ type UserExpense = {
   otherExpense: number
   otherMemo?: string | null
   totalExpense: number
+  totalDeductionReference?: number
 }
 
 type ProfitGroup = {
@@ -131,6 +134,8 @@ const blankExpense = (userId: string, yearMonth: string): UserExpense => ({
   yearMonth,
   baseSalary: 0,
   socialInsurance: 0,
+  employeeSocialInsurance: 0,
+  withholdingTax: 0,
   rentAllocation: 0,
   paidCommission: 0,
   travelExpense: 0,
@@ -144,7 +149,7 @@ const blankExpense = (userId: string, yearMonth: string): UserExpense => ({
 })
 const expenseFields: { key: keyof UserExpense; label: string }[] = [
   { key: "baseSalary", label: "基本給" },
-  { key: "socialInsurance", label: "社保" },
+  { key: "socialInsurance", label: "社保（会社負担）" },
   { key: "rentAllocation", label: "家賃按分" },
   { key: "paidCommission", label: "支払歩合" },
   { key: "travelExpense", label: "交通費等" },
@@ -154,7 +159,12 @@ const expenseFields: { key: keyof UserExpense; label: string }[] = [
   { key: "suppliesExpense", label: "備品・消耗品" },
   { key: "otherExpense", label: "その他" },
 ]
+const referenceDeductionFields: { key: keyof UserExpense; label: string }[] = [
+  { key: "employeeSocialInsurance", label: "社保（本人負担）" },
+  { key: "withholdingTax", label: "税控除等" },
+]
 const expenseTotal = (expense: UserExpense) => expenseFields.reduce((sum, field) => sum + Number(expense[field.key] ?? 0), 0)
+const deductionTotal = (expense: UserExpense) => referenceDeductionFields.reduce((sum, field) => sum + Number(expense[field.key] ?? 0), 0)
 const date = (value: string) => {
   const datePart = value?.slice(0, 10)
   if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
@@ -568,7 +578,9 @@ export default function AdminProfitsPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-[14px] font-semibold text-navy-900">{user.name}</p>
-                    <p className="text-[12px] text-navy-400">経費合計 {yen(expenseTotal(form))}</p>
+                    <p className="text-[12px] text-navy-400">
+                      会社コスト {yen(expenseTotal(form))} / 本人控除メモ {yen(deductionTotal(form))}
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -594,6 +606,26 @@ export default function AdminProfitsPage() {
                       />
                     </label>
                   ))}
+                </div>
+                <div className="rounded-lg border border-navy-100 bg-navy-50 p-3">
+                  <p className="text-[11px] font-medium text-navy-500 mb-2">
+                    本人負担・控除メモ（会社に残る利益の計算には含めません）
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    {referenceDeductionFields.map(field => (
+                      <label key={field.key} className="block">
+                        <span className="block text-[11px] text-navy-400 mb-1">{field.label}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={Number(form[field.key] ?? 0)}
+                          onChange={event => updateExpenseField(user.id, field.key, event.target.value)}
+                          className="form-input text-right tabular-nums bg-white"
+                        />
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 <label className="block">
                   <span className="block text-[11px] text-navy-400 mb-1">その他メモ</span>
