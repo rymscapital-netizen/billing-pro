@@ -72,6 +72,10 @@ type ProfitGroup = {
   expenses: UserExpense
   totalExpense: number
   retainedProfit: number
+  targetFixedExpense: number
+  targetVariableRate: number
+  monthlyGrossProfitTarget: number
+  annualGrossProfitTarget: number
   items: ProfitItem[]
 }
 
@@ -603,6 +607,8 @@ export default function AdminProfitsPage() {
                 <th style={{ textAlign: "right" }}>歩合率</th>
                 <th style={{ textAlign: "right" }}>概算歩合</th>
                 <th style={{ textAlign: "right" }}>月次経費</th>
+                <th style={{ textAlign: "right" }}>月次必要粗利</th>
+                <th style={{ textAlign: "right" }}>年間目標</th>
                 <th style={{ textAlign: "right" }}>会社に残る利益</th>
                 <th style={{ textAlign: "right" }}>件数</th>
               </tr>
@@ -610,11 +616,11 @@ export default function AdminProfitsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="text-center text-navy-400 py-8">読み込み中...</td>
+                  <td colSpan={12} className="text-center text-navy-400 py-8">読み込み中...</td>
                 </tr>
               ) : groups.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="text-center text-navy-400 py-8">この月の利益データはありません。</td>
+                  <td colSpan={12} className="text-center text-navy-400 py-8">この月の利益データはありません。</td>
                 </tr>
               ) : groups.map(group => (
                 <tr key={group.userId}>
@@ -631,6 +637,8 @@ export default function AdminProfitsPage() {
                   <td className="amount">{pct(group.commissionRate)}</td>
                   <td className="amount text-gold-700">{yen(group.commissionAmount)}</td>
                   <td className="amount text-red-700">{yen(group.totalExpense)}</td>
+                  <td className="amount text-blue-700">{yen(group.monthlyGrossProfitTarget)}</td>
+                  <td className="amount text-navy-700">{yen(group.annualGrossProfitTarget)}</td>
                   <td className={`amount ${group.retainedProfit >= 0 ? "text-emerald-700" : "text-red-700"}`}>{yen(group.retainedProfit)}</td>
                   <td className="text-right tabular-nums">{group.invoiceCount}件</td>
                 </tr>
@@ -638,6 +646,9 @@ export default function AdminProfitsPage() {
             </tbody>
           </table>
         </div>
+        <p className="text-[12px] text-navy-400">
+          月次必要粗利は、固定費を「1 - 歩合率 - 法人実効税率30.64%」で割って算出しています。年間目標は月次必要粗利の12か月換算です。
+        </p>
       </section>
 
       <section className="space-y-3">

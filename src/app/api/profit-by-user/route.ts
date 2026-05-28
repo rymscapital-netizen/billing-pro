@@ -85,6 +85,27 @@ function applyCorporateEffectiveTax(expense: any, grossProfit: number) {
   return normalized
 }
 
+function calculateGrossProfitTarget(expense: any, commissionRate: number) {
+  const fixedExpense = Math.max(
+    toNumber(expense?.totalExpense) -
+      toNumber(expense?.corporateTax) -
+      toNumber(expense?.paidCommission),
+    0
+  )
+  const variableRate = CORPORATE_EFFECTIVE_TAX_RATE + Math.max(toNumber(commissionRate), 0) / 100
+  const denominator = 1 - variableRate
+  const monthlyGrossProfitTarget = fixedExpense > 0 && denominator > 0
+    ? Math.ceil(fixedExpense / denominator)
+    : 0
+
+  return {
+    targetFixedExpense: fixedExpense,
+    targetVariableRate: variableRate * 100,
+    monthlyGrossProfitTarget,
+    annualGrossProfitTarget: monthlyGrossProfitTarget * 12,
+  }
+}
+
 function monthEndDate(yearMonth: string) {
   const [year, month] = yearMonth.split("-").map(Number)
   return new Date(year, month, 0, 23, 59, 59, 999)
@@ -236,11 +257,13 @@ function addInvoiceToGroups(
 function applyExpensesToGroups(groups: any[], expensesByUserId: Map<string, any>) {
   return groups.map(group => {
     const expense = applyCorporateEffectiveTax(expensesByUserId.get(group.userId), group.grossProfit)
+    const target = calculateGrossProfitTarget(expense, group.commissionRate)
     return {
       ...group,
       expenses: expense,
       totalExpense: expense.totalExpense,
       retainedProfit: group.grossProfit - expense.totalExpense,
+      ...target,
     }
   })
 }
@@ -251,6 +274,7 @@ function addExpenseOnlyGroups(groups: any[], users: any[], expensesByUserId: Map
     .filter(user => expensesByUserId.has(user.id) && !existingUserIds.has(user.id))
     .map(user => {
       const expense = applyCorporateEffectiveTax(expensesByUserId.get(user.id), 0)
+      const target = calculateGrossProfitTarget(expense, user.commissionRate)
       return {
         userId: user.id,
         userName: user.name,
@@ -269,6 +293,7 @@ function addExpenseOnlyGroups(groups: any[], users: any[], expensesByUserId: Map
         expenses: expense,
         totalExpense: expense.totalExpense,
         retainedProfit: -expense.totalExpense,
+        ...target,
       }
     })
 
