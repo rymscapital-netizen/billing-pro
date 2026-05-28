@@ -88,8 +88,7 @@ function applyCorporateEffectiveTax(expense: any, grossProfit: number) {
 function calculateGrossProfitTarget(expense: any, commissionRate: number) {
   const fixedExpense = Math.max(
     toNumber(expense?.totalExpense) -
-      toNumber(expense?.corporateTax) -
-      toNumber(expense?.paidCommission),
+      toNumber(expense?.corporateTax),
     0
   )
   const variableRate = CORPORATE_EFFECTIVE_TAX_RATE + Math.max(toNumber(commissionRate), 0) / 100
