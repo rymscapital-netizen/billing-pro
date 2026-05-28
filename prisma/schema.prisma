@@ -49,6 +49,14 @@ model User {
   isActive     Boolean  @default(true)
   commissionRate Decimal @default(0) @db.Decimal(5, 2)
   employmentStartDate DateTime?
+  defaultBaseSalary Decimal @default(0) @db.Decimal(14, 0)
+  defaultSocialInsurance Decimal @default(0) @db.Decimal(14, 0)
+  defaultEmployeeSocialInsurance Decimal @default(0) @db.Decimal(14, 0)
+  defaultWithholdingTax Decimal @default(0) @db.Decimal(14, 0)
+  defaultTravelExpense Decimal @default(0) @db.Decimal(14, 0)
+  defaultCommunicationCost Decimal @default(0) @db.Decimal(14, 0)
+  defaultWelfareExpense Decimal @default(0) @db.Decimal(14, 0)
+  defaultSuppliesExpense Decimal @default(0) @db.Decimal(14, 0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   company              Company          @relation(fields: [companyId], references: [id])

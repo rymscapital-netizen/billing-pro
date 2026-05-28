@@ -1,8 +1,31 @@
 ﻿"use client"
 
-import { useState, useEffect } from "react"
+import { Fragment, useState, useEffect } from "react"
 import { Building2, UserPlus, Save, Eye, EyeOff, KeyRound } from "lucide-react"
 import { useSession } from "next-auth/react"
+
+type DefaultExpenseKey =
+  | "defaultBaseSalary"
+  | "defaultSocialInsurance"
+  | "defaultEmployeeSocialInsurance"
+  | "defaultWithholdingTax"
+  | "defaultTravelExpense"
+  | "defaultCommunicationCost"
+  | "defaultWelfareExpense"
+  | "defaultSuppliesExpense"
+
+const defaultExpenseFields: { key: DefaultExpenseKey; label: string }[] = [
+  { key: "defaultBaseSalary", label: "基本給" },
+  { key: "defaultSocialInsurance", label: "社保（会社負担）" },
+  { key: "defaultEmployeeSocialInsurance", label: "社保（本人控除）" },
+  { key: "defaultWithholdingTax", label: "源泉税等" },
+  { key: "defaultTravelExpense", label: "交通費等" },
+  { key: "defaultCommunicationCost", label: "通信費" },
+  { key: "defaultWelfareExpense", label: "福利厚生" },
+  { key: "defaultSuppliesExpense", label: "備品・消耗品" },
+]
+
+const blankDefaultExpenses = () => Object.fromEntries(defaultExpenseFields.map(field => [field.key, 0])) as Record<DefaultExpenseKey, number>
 
 export default function SettingsPage() {
   const { data: session, update: updateSession } = useSession()
@@ -35,6 +58,7 @@ export default function SettingsPage() {
   const [staffPassword, setStaffPassword] = useState("")
   const [staffCommissionRate, setStaffCommissionRate] = useState(0)
   const [staffEmploymentStartDate, setStaffEmploymentStartDate] = useState("")
+  const [staffDefaultExpenses, setStaffDefaultExpenses] = useState<Record<DefaultExpenseKey, number>>(blankDefaultExpenses)
   const [showStaffPass, setShowStaffPass] = useState(false)
   const [addingStaff,   setAddingStaff]   = useState(false)
   const [staffAdded,    setStaffAdded]    = useState(false)
@@ -112,12 +136,13 @@ export default function SettingsPage() {
         role: "ADMIN", companyId: adminCompanyId,
         commissionRate: staffCommissionRate,
         employmentStartDate: staffEmploymentStartDate || null,
+        ...staffDefaultExpenses,
       }),
     })
     if (res.ok) {
       const newUser = await res.json()
       setUsers(prev => [newUser, ...prev])
-      setStaffName(""); setStaffEmail(""); setStaffPassword(""); setStaffCommissionRate(0); setStaffEmploymentStartDate("")
+      setStaffName(""); setStaffEmail(""); setStaffPassword(""); setStaffCommissionRate(0); setStaffEmploymentStartDate(""); setStaffDefaultExpenses(blankDefaultExpenses())
       setStaffAdded(true)
       setTimeout(() => setStaffAdded(false), 3000)
     }
@@ -166,6 +191,11 @@ export default function SettingsPage() {
     setUsers(prev => prev.map(user => user.id === userId ? { ...user, employmentStartDate: value || null } : user))
   }
 
+  const handleDefaultExpenseChange = (userId: string, field: DefaultExpenseKey, value: number) => {
+    const amount = Number.isFinite(value) ? Math.max(value, 0) : 0
+    setUsers(prev => prev.map(user => user.id === userId ? { ...user, [field]: amount } : user))
+  }
+
   const handleSaveCommission = async (userId: string) => {
     const target = users.find(user => user.id === userId)
     if (!target) return
@@ -177,6 +207,7 @@ export default function SettingsPage() {
         userId,
         commissionRate: Number(target.commissionRate ?? 0),
         employmentStartDate: target.employmentStartDate ? String(target.employmentStartDate).slice(0, 10) : null,
+        ...Object.fromEntries(defaultExpenseFields.map(field => [field.key, Number(target[field.key] ?? 0)])),
       }),
     })
     if (res.ok) {
@@ -377,6 +408,25 @@ export default function SettingsPage() {
               />
             </div>
           </div>
+          <div className="rounded-lg border border-navy-100 bg-navy-50 p-3">
+            <p className="text-[12px] font-medium text-navy-700 mb-3">標準月額経費</p>
+            <div className="grid grid-cols-2 gap-3">
+              {defaultExpenseFields.map(field => (
+                <label key={field.key} className="block">
+                  <span className="block text-[11px] text-navy-400 mb-1">{field.label}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={staffDefaultExpenses[field.key]}
+                    onChange={e => setStaffDefaultExpenses(prev => ({ ...prev, [field.key]: Math.max(0, Number(e.target.value) || 0) }))}
+                    className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] text-right tabular-nums focus:outline-none focus:border-navy-400 bg-white"
+                  />
+                </label>
+              ))}
+            </div>
+            <p className="text-[11px] text-navy-400 mt-2">利益集計で月次経費が未作成の月に自動反映されます。</p>
+          </div>
         </div>
         <div className="flex items-center gap-3 mt-5 pt-4 border-t border-navy-100">
           <button
@@ -494,7 +544,8 @@ export default function SettingsPage() {
                 </thead>
                 <tbody>
                   {(members as any[]).map((u: any) => (
-                    <tr key={u.id} className="border-b border-navy-100 last:border-0 hover:bg-navy-50">
+                    <Fragment key={u.id}>
+                    <tr className="border-b border-navy-100 hover:bg-navy-50">
                       <td className="px-4 py-3 font-medium text-navy-900">{u.name}</td>
                       <td className="px-4 py-3 text-navy-500 text-[12px]">{u.email}</td>
                       <td className="px-4 py-3">
@@ -551,6 +602,32 @@ export default function SettingsPage() {
                         </span>
                       </td>
                     </tr>
+                    {u.role === "ADMIN" && (
+                      <tr className="border-b border-navy-100 bg-navy-50/60">
+                        <td colSpan={6} className="px-4 py-3">
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <p className="text-[11px] font-medium text-navy-500">標準月額経費</p>
+                            <p className="text-[10.5px] text-navy-400">未作成の月次経費に自動反映</p>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                            {defaultExpenseFields.map(field => (
+                              <label key={field.key} className="block">
+                                <span className="block text-[10.5px] text-navy-400 mb-1">{field.label}</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={1}
+                                  value={Number(u[field.key] ?? 0)}
+                                  onChange={e => handleDefaultExpenseChange(u.id, field.key, Number(e.target.value))}
+                                  className="w-full px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400 bg-white"
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

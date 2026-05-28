@@ -44,6 +44,19 @@ const referenceDeductionFields = [
   "withholdingTax",
 ] as const
 
+const userExpenseDefaultMap = {
+  baseSalary: "defaultBaseSalary",
+  socialInsurance: "defaultSocialInsurance",
+  employeeSocialInsurance: "defaultEmployeeSocialInsurance",
+  withholdingTax: "defaultWithholdingTax",
+  travelExpense: "defaultTravelExpense",
+  communicationCost: "defaultCommunicationCost",
+  welfareExpense: "defaultWelfareExpense",
+  suppliesExpense: "defaultSuppliesExpense",
+} as const
+
+const profitUserSelect = "id, name, commissionRate, employmentStartDate, defaultBaseSalary, defaultSocialInsurance, defaultEmployeeSocialInsurance, defaultWithholdingTax, defaultTravelExpense, defaultCommunicationCost, defaultWelfareExpense, defaultSuppliesExpense"
+
 function calculateExpenseTotal(expense: any) {
   return expenseFields.reduce((sum, field) => sum + toNumber(expense?.[field]), 0)
 }
@@ -55,6 +68,7 @@ function normalizeExpense(expense: any) {
     yearMonth: expense?.yearMonth ?? null,
     otherMemo: expense?.otherMemo ?? "",
     isAutoRentAllocation: Boolean(expense?.isAutoRentAllocation),
+    isAutoDefaultExpense: Boolean(expense?.isAutoDefaultExpense),
   }
   for (const field of expenseFields) normalized[field] = toNumber(expense?.[field])
   for (const field of referenceDeductionFields) normalized[field] = toNumber(expense?.[field])
@@ -91,6 +105,22 @@ function buildRentAllocations(users: any[], yearMonth: string, officeRent: numbe
 
 function applyOfficeRentToExpenses(expenses: any[], users: any[], yearMonth: string, officeRent: number) {
   const byUserId = new Map<string, any>((expenses ?? []).map((expense: any) => [expense.userId, { ...expense }]))
+  for (const user of users.filter(user => isActiveInMonth(user, yearMonth))) {
+    const current = byUserId.get(user.id) ?? {
+      id: null,
+      userId: user.id,
+      yearMonth,
+      otherMemo: "",
+      isAutoDefaultExpense: true,
+    }
+    if (!current.id) {
+      for (const [expenseField, userField] of Object.entries(userExpenseDefaultMap)) {
+        current[expenseField] = toNumber(user[userField as keyof typeof user])
+      }
+    }
+    byUserId.set(user.id, current)
+  }
+
   const allocations = buildRentAllocations(users, yearMonth, officeRent)
 
   for (const [userId, rentAllocation] of allocations.entries()) {
@@ -440,14 +470,14 @@ export async function GET(req: NextRequest) {
     }
 
     let usersQuery: any = sb.from("User")
-      .select("id, name, commissionRate, employmentStartDate")
+      .select(profitUserSelect)
       .eq("companyId", session.user.companyId)
       .eq("isActive", true)
       .eq("role", "ADMIN")
       .order("name", { ascending: true })
 
     const rentUsersQuery = sb.from("User")
-      .select("id, name, commissionRate, employmentStartDate")
+      .select(profitUserSelect)
       .eq("companyId", session.user.companyId)
       .eq("isActive", true)
       .eq("role", "ADMIN")

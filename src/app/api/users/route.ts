@@ -13,14 +13,32 @@ const createSchema = z.object({
   companyId: z.string().min(1),
   commissionRate: z.number().min(0).max(100).optional(),
   employmentStartDate: z.string().optional().nullable(),
+  defaultBaseSalary: z.number().min(0).optional(),
+  defaultSocialInsurance: z.number().min(0).optional(),
+  defaultEmployeeSocialInsurance: z.number().min(0).optional(),
+  defaultWithholdingTax: z.number().min(0).optional(),
+  defaultTravelExpense: z.number().min(0).optional(),
+  defaultCommunicationCost: z.number().min(0).optional(),
+  defaultWelfareExpense: z.number().min(0).optional(),
+  defaultSuppliesExpense: z.number().min(0).optional(),
 })
 
 const updateSchema = z.object({
   userId: z.string().min(1),
   commissionRate: z.number().min(0).max(100).optional(),
   employmentStartDate: z.string().optional().nullable(),
+  defaultBaseSalary: z.number().min(0).optional(),
+  defaultSocialInsurance: z.number().min(0).optional(),
+  defaultEmployeeSocialInsurance: z.number().min(0).optional(),
+  defaultWithholdingTax: z.number().min(0).optional(),
+  defaultTravelExpense: z.number().min(0).optional(),
+  defaultCommunicationCost: z.number().min(0).optional(),
+  defaultWelfareExpense: z.number().min(0).optional(),
+  defaultSuppliesExpense: z.number().min(0).optional(),
   isActive: z.boolean().optional(),
 })
+
+const userSelect = "id, name, email, role, companyId, isActive, commissionRate, employmentStartDate, defaultBaseSalary, defaultSocialInsurance, defaultEmployeeSocialInsurance, defaultWithholdingTax, defaultTravelExpense, defaultCommunicationCost, defaultWelfareExpense, defaultSuppliesExpense, createdAt, updatedAt"
 
 function getSb() {
   return createClient(
@@ -37,7 +55,7 @@ export async function GET() {
   try {
     const sb = getSb()
     const { data: users, error } = await sb.from("User")
-      .select("id, name, email, role, companyId, isActive, commissionRate, employmentStartDate, createdAt, updatedAt")
+      .select(userSelect)
       .eq("companyId", u.companyId)
       .order("createdAt", { ascending: false })
     if (error) throw new Error(error.message)
@@ -84,6 +102,14 @@ export async function POST(req: NextRequest) {
       companyId:    body.companyId,
       commissionRate: role === "ADMIN" ? body.commissionRate ?? 0 : 0,
       employmentStartDate: role === "ADMIN" && body.employmentStartDate ? new Date(body.employmentStartDate) : null,
+      defaultBaseSalary: role === "ADMIN" ? body.defaultBaseSalary ?? 0 : 0,
+      defaultSocialInsurance: role === "ADMIN" ? body.defaultSocialInsurance ?? 0 : 0,
+      defaultEmployeeSocialInsurance: role === "ADMIN" ? body.defaultEmployeeSocialInsurance ?? 0 : 0,
+      defaultWithholdingTax: role === "ADMIN" ? body.defaultWithholdingTax ?? 0 : 0,
+      defaultTravelExpense: role === "ADMIN" ? body.defaultTravelExpense ?? 0 : 0,
+      defaultCommunicationCost: role === "ADMIN" ? body.defaultCommunicationCost ?? 0 : 0,
+      defaultWelfareExpense: role === "ADMIN" ? body.defaultWelfareExpense ?? 0 : 0,
+      defaultSuppliesExpense: role === "ADMIN" ? body.defaultSuppliesExpense ?? 0 : 0,
     },
     include: { company: { select: { id: true, name: true } } },
   })
@@ -105,13 +131,25 @@ export async function PATCH(req: NextRequest) {
   const updates: Record<string, any> = { updatedAt: new Date().toISOString() }
   if (body.commissionRate !== undefined) updates.commissionRate = body.commissionRate
   if (body.employmentStartDate !== undefined) updates.employmentStartDate = body.employmentStartDate || null
+  for (const field of [
+    "defaultBaseSalary",
+    "defaultSocialInsurance",
+    "defaultEmployeeSocialInsurance",
+    "defaultWithholdingTax",
+    "defaultTravelExpense",
+    "defaultCommunicationCost",
+    "defaultWelfareExpense",
+    "defaultSuppliesExpense",
+  ] as const) {
+    if (body[field] !== undefined) updates[field] = body[field]
+  }
   if (body.isActive !== undefined) updates.isActive = body.isActive
 
   const { data, error } = await sb.from("User")
     .update(updates)
     .eq("id", body.userId)
     .eq("companyId", u.companyId)
-    .select("id, name, email, role, companyId, isActive, commissionRate, employmentStartDate, createdAt, updatedAt")
+    .select(userSelect)
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
