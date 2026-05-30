@@ -129,7 +129,7 @@ type FiscalSummary = {
 }
 
 type ProfitData = {
-  users: { id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "TRIAL_20" }[]
+  users: { id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "FIXED" | "TRIAL_20" }[]
   canViewAllUsers: boolean
   totals: ProfitTotals
   groups: ProfitGroup[]
@@ -318,7 +318,7 @@ function InvoiceTable({
 export default function AdminProfitsPage() {
   const [yearMonth, setYearMonth] = useState(currentMonth)
   const [assignedUserId, setAssignedUserId] = useState("")
-  const [users, setUsers] = useState<{ id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "TRIAL_20" }[]>([])
+  const [users, setUsers] = useState<{ id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "FIXED" | "TRIAL_20" }[]>([])
   const [payoutPreview, setPayoutPreview] = useState<any>(null)
   const [payoutSaving, setPayoutSaving] = useState(false)
   const [data, setData] = useState<ProfitData | null>(null)
@@ -629,7 +629,7 @@ export default function AdminProfitsPage() {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
             <SummaryCard label="当月対象粗利" value={yen(payoutPreview.monthGrossProfit)} tone="blue" icon={<Wallet size={18} />} />
             <SummaryCard label="決算期累計粗利" value={yen(payoutPreview.cumulativeGrossProfit)} tone="green" icon={<TrendingUp size={18} />} />
-            <SummaryCard label="適用歩合率" value={pct(payoutPreview.commissionRate)} note={payoutPreview.commissionMode === "TRIAL_20" ? "試用期間20%" : "累計粗利で変動"} tone="amber" icon={<Calculator size={18} />} />
+            <SummaryCard label="適用歩合率" value={pct(payoutPreview.commissionRate)} note={payoutPreview.commissionMode === "TRIAL_20" ? "試用期間20%" : payoutPreview.commissionMode === "FIXED" ? "固定歩合率" : "累計粗利で変動"} tone="amber" icon={<Calculator size={18} />} />
             <SummaryCard label="累計歩合額" value={yen(payoutPreview.cumulativeCommissionAmount)} note={`確定済み ${yen(payoutPreview.priorPaidAmount)}`} tone="navy" icon={<CheckCircle2 size={18} />} />
             <SummaryCard label="今回支給額" value={yen(payoutPreview.payoutAmount)} note={`${String(payoutPreview.paymentDate).slice(0, 10)} 支給`} tone="green" icon={<Save size={18} />} />
           </div>

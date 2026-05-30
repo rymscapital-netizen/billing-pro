@@ -18,7 +18,22 @@ await client.query(`
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'CommissionMode') THEN
-    CREATE TYPE "CommissionMode" AS ENUM ('STANDARD', 'TRIAL_20');
+    CREATE TYPE "CommissionMode" AS ENUM ('STANDARD', 'FIXED', 'TRIAL_20');
+  END IF;
+END
+$$;
+`)
+
+await client.query(`
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_enum
+    WHERE enumlabel = 'FIXED'
+      AND enumtypid = '"CommissionMode"'::regtype
+  ) THEN
+    ALTER TYPE "CommissionMode" ADD VALUE 'FIXED';
   END IF;
 END
 $$;

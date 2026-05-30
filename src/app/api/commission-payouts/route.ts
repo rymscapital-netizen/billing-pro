@@ -32,18 +32,19 @@ function normalizeAssignments(row: any) {
     return assignments
       .map((assignment: any) => {
         const user = Array.isArray(assignment.user) ? assignment.user[0] : assignment.user
-        return {
-          userId: assignment.userId ?? user?.id,
-          shareRate: toNumber(assignment.shareRate),
-          commissionMode: user?.commissionMode ?? "STANDARD",
-        }
+      return {
+        userId: assignment.userId ?? user?.id,
+        shareRate: toNumber(assignment.shareRate),
+        commissionMode: user?.commissionMode ?? "STANDARD",
+        commissionRate: toNumber(user?.commissionRate),
+      }
       })
       .filter((assignment: any) => assignment.userId && assignment.shareRate > 0)
   }
 
   const assignedUser = Array.isArray(row.assignedUser) ? row.assignedUser[0] : row.assignedUser
   return assignedUser?.id
-    ? [{ userId: assignedUser.id, shareRate: 100, commissionMode: assignedUser.commissionMode ?? "STANDARD" }]
+    ? [{ userId: assignedUser.id, shareRate: 100, commissionMode: assignedUser.commissionMode ?? "STANDARD", commissionRate: toNumber(assignedUser.commissionRate) }]
     : []
 }
 
@@ -52,7 +53,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
   const month = resolveMonthRange(yearMonth)
   const closingDate = formatMonthEnd(yearMonth)
   const { data: userRow, error: userError } = await sb.from("User")
-    .select("id, commissionMode")
+    .select("id, commissionMode, commissionRate")
     .eq("id", userId)
     .eq("companyId", companyId)
     .maybeSingle()
@@ -60,7 +61,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
   if (!userRow) throw new Error("User not found")
 
   const { data: invoices, error: invoiceError } = await sb.from("Invoice")
-    .select("id, subtotal, status, payments:InvoicePayment(*), assignedUser:User!assignedUserId(id, commissionMode), assignments:InvoiceAssignment(*, user:User!userId(id, commissionMode)), profit:InvoiceProfit(*), projectExpenses:ProjectExpense(*)")
+    .select("id, subtotal, status, payments:InvoicePayment(*), assignedUser:User!assignedUserId(id, commissionMode, commissionRate), assignments:InvoiceAssignment(*, user:User!userId(id, commissionMode, commissionRate)), profit:InvoiceProfit(*), projectExpenses:ProjectExpense(*)")
     .eq("issuerCompanyId", companyId)
     .in("status", ["PAYMENT_CONFIRMED", "CLEARED"])
   if (invoiceError) throw new Error(invoiceError.message)
@@ -80,6 +81,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
   let cumulativeGrossProfit = 0
   let monthGrossProfit = 0
   let commissionMode = userRow.commissionMode ?? "STANDARD"
+  let fixedCommissionRate = toNumber(userRow.commissionRate)
   const items: any[] = []
 
   for (const invoice of invoices ?? []) {
@@ -93,6 +95,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     if (!assignment) continue
 
     commissionMode = assignment.commissionMode ?? commissionMode
+    fixedCommissionRate = toNumber(assignment.commissionRate)
     const project = calculateProjectGrossProfit({
       ...invoice,
       linkedReceivedInvoices: receivedByInvoiceId.get(invoice.id) ?? [],
@@ -111,7 +114,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     })
   }
 
-  const commissionRate = resolveCommissionRate(cumulativeGrossProfit, commissionMode as any)
+  const commissionRate = resolveCommissionRate(cumulativeGrossProfit, commissionMode as any, fixedCommissionRate)
   const cumulativeCommissionAmount = Math.round(cumulativeGrossProfit * (commissionRate / 100))
 
   const { data: priorPayouts, error: payoutError } = await sb.from("CommissionPayout")

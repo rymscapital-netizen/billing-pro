@@ -82,7 +82,7 @@ export default function SettingsPage() {
   const [staffEmail,    setStaffEmail]    = useState("")
   const [staffPassword, setStaffPassword] = useState("")
   const [staffCommissionRate, setStaffCommissionRate] = useState(0)
-  const [staffCommissionMode, setStaffCommissionMode] = useState<"STANDARD" | "TRIAL_20">("STANDARD")
+  const [staffCommissionMode, setStaffCommissionMode] = useState<"STANDARD" | "FIXED" | "TRIAL_20">("STANDARD")
   const [staffEmploymentStartDate, setStaffEmploymentStartDate] = useState("")
   const [staffDefaultExpenses, setStaffDefaultExpenses] = useState<Record<DefaultExpenseKey, number>>(blankDefaultExpenses)
   const [showStaffPass, setShowStaffPass] = useState(false)
@@ -162,7 +162,7 @@ export default function SettingsPage() {
       body: JSON.stringify({
         name: staffName, email: staffEmail, password: staffPassword,
         role: "ADMIN", companyId: adminCompanyId,
-        commissionRate: 0,
+        commissionRate: staffCommissionMode === "FIXED" ? staffCommissionRate : 0,
         commissionMode: staffCommissionMode,
         employmentStartDate: staffEmploymentStartDate || null,
         ...staffDefaultExpenses,
@@ -224,7 +224,7 @@ export default function SettingsPage() {
     setUsers(prev => prev.map(user => user.id === userId ? { ...user, commissionRate: rate } : user))
   }
 
-  const handleCommissionModeChange = (userId: string, value: "STANDARD" | "TRIAL_20") => {
+  const handleCommissionModeChange = (userId: string, value: "STANDARD" | "FIXED" | "TRIAL_20") => {
     setUsers(prev => prev.map(user => user.id === userId ? { ...user, commissionMode: value } : user))
   }
 
@@ -441,14 +441,32 @@ export default function SettingsPage() {
               <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">歩合モード</label>
               <select
                 value={staffCommissionMode}
-                onChange={e => setStaffCommissionMode(e.target.value as "STANDARD" | "TRIAL_20")}
+                onChange={e => setStaffCommissionMode(e.target.value as "STANDARD" | "FIXED" | "TRIAL_20")}
                 className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] focus:outline-none focus:border-navy-400 bg-white"
               >
                 <option value="STANDARD">通常（累計粗利で変動）</option>
+                <option value="FIXED">固定歩合率</option>
                 <option value="TRIAL_20">試用期間（20%固定）</option>
               </select>
               <p className="text-[11px] text-navy-400 mt-1">通常は決算期内の累計粗利で自動判定します。</p>
             </div>
+            {staffCommissionMode === "FIXED" && (
+              <div>
+                <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">固定歩合率</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.1}
+                    value={staffCommissionRate}
+                    onChange={e => setStaffCommissionRate(Number(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] text-right tabular-nums focus:outline-none focus:border-navy-400"
+                  />
+                  <span className="text-[12px] text-navy-400">%</span>
+                </div>
+              </div>
+            )}
             <div>
               <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">入社日</label>
               <input
@@ -624,16 +642,33 @@ export default function SettingsPage() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <select
                               value={u.commissionMode ?? "STANDARD"}
-                              onChange={e => handleCommissionModeChange(u.id, e.target.value as "STANDARD" | "TRIAL_20")}
+                              onChange={e => handleCommissionModeChange(u.id, e.target.value as "STANDARD" | "FIXED" | "TRIAL_20")}
                               disabled={!canManageUsers}
                               className="w-[155px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] focus:outline-none focus:border-navy-400 bg-white"
                             >
                               <option value="STANDARD">通常変動</option>
+                              <option value="FIXED">固定歩合率</option>
                               <option value="TRIAL_20">試用期間20%</option>
                             </select>
-                            <span className="text-[11px] text-navy-400">
-                              {(u.commissionMode ?? "STANDARD") === "TRIAL_20" ? "累計粗利に関わらず20%" : "累計粗利で10〜30%"}
-                            </span>
+                            {(u.commissionMode ?? "STANDARD") === "FIXED" ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  step={0.1}
+                                  value={Number(u.commissionRate ?? 0)}
+                                  onChange={e => handleCommissionChange(u.id, Number(e.target.value))}
+                                  disabled={!canManageUsers}
+                                  className="w-[82px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400"
+                                />
+                                <span className="text-[12px] text-navy-400">%</span>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-navy-400">
+                                {(u.commissionMode ?? "STANDARD") === "TRIAL_20" ? "累計粗利に関わらず20%" : "累計粗利で10〜30%"}
+                              </span>
+                            )}
                             {canManageUsers && <button
                               type="button"
                               onClick={() => handleSaveCommission(u.id)}

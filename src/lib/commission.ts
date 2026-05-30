@@ -6,7 +6,7 @@ export const COMMISSION_TIERS = [
   { min: 30_000_000, rate: 30 },
 ] as const
 
-export type CommissionMode = "STANDARD" | "TRIAL_20"
+export type CommissionMode = "STANDARD" | "FIXED" | "TRIAL_20"
 
 export function resolveFiscalYearStartMonth(yearMonth: string) {
   const [year, month] = yearMonth.split("-").map(Number)
@@ -39,8 +39,9 @@ export function resolvePaymentDate(yearMonth: string) {
   return `${pay.year}-${String(pay.month).padStart(2, "0")}-10T00:00:00`
 }
 
-export function resolveCommissionRate(cumulativeGrossProfit: number, mode: CommissionMode = "STANDARD") {
+export function resolveCommissionRate(cumulativeGrossProfit: number, mode: CommissionMode = "STANDARD", fixedRate = 0) {
   if (mode === "TRIAL_20") return 20
+  if (mode === "FIXED") return Math.max(Number(fixedRate ?? 0), 0)
   return COMMISSION_TIERS.reduce((rate, tier) => (
     cumulativeGrossProfit >= tier.min ? tier.rate : rate
   ), COMMISSION_TIERS[0].rate)

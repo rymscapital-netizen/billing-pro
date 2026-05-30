@@ -12,7 +12,7 @@ const createSchema = z.object({
   role:      z.enum(["ADMIN", "CLIENT"]),
   companyId: z.string().min(1),
   commissionRate: z.number().min(0).max(100).optional(),
-  commissionMode: z.enum(["STANDARD", "TRIAL_20"]).optional(),
+  commissionMode: z.enum(["STANDARD", "FIXED", "TRIAL_20"]).optional(),
   employmentStartDate: z.string().optional().nullable(),
   defaultBaseSalary: z.number().min(0).optional(),
   defaultSocialInsurance: z.number().min(0).optional(),
@@ -27,7 +27,7 @@ const createSchema = z.object({
 const updateSchema = z.object({
   userId: z.string().min(1),
   commissionRate: z.number().min(0).max(100).optional(),
-  commissionMode: z.enum(["STANDARD", "TRIAL_20"]).optional(),
+  commissionMode: z.enum(["STANDARD", "FIXED", "TRIAL_20"]).optional(),
   employmentStartDate: z.string().optional().nullable(),
   defaultBaseSalary: z.number().min(0).optional(),
   defaultSocialInsurance: z.number().min(0).optional(),

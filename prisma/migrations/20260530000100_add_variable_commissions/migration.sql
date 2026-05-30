@@ -1,4 +1,4 @@
-CREATE TYPE "CommissionMode" AS ENUM ('STANDARD', 'TRIAL_20');
+CREATE TYPE "CommissionMode" AS ENUM ('STANDARD', 'FIXED', 'TRIAL_20');
 
 ALTER TABLE "User"
 ADD COLUMN "commissionMode" "CommissionMode" NOT NULL DEFAULT 'STANDARD';
