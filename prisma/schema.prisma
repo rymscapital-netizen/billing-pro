@@ -49,6 +49,7 @@ model User {
   role         UserRole @default(CLIENT)
   isActive     Boolean  @default(true)
   commissionRate Decimal @default(0) @db.Decimal(5, 2)
+  commissionMode CommissionMode @default(STANDARD)
   employmentStartDate DateTime?
   defaultBaseSalary Decimal @default(0) @db.Decimal(14, 0)
   defaultSocialInsurance Decimal @default(0) @db.Decimal(14, 0)
@@ -72,6 +73,11 @@ model User {
 enum UserRole {
   ADMIN
   CLIENT
+}
+
+enum CommissionMode {
+  STANDARD
+  TRIAL_20
 }
 
 model Invoice {
@@ -101,6 +107,7 @@ model Invoice {
   assignments    InvoiceAssignment[]
   ocrJobs        OcrJob[]
   images         InvoiceImage[]
+  projectExpenses ProjectExpense[]
 }
 
 model InvoiceAssignment {
@@ -145,6 +152,46 @@ model InvoiceProfit {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   invoice Invoice @relation(fields: [invoiceId], references: [id])
+}
+
+model ProjectExpense {
+  id        String   @id @default(cuid())
+  companyId String
+  invoiceId String
+  label     String
+  amount    Decimal  @db.Decimal(14, 0)
+  taxRate   Decimal  @default(10) @db.Decimal(5, 2)
+  expenseDate DateTime?
+  memo      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([invoiceId])
+}
+
+model CommissionPayout {
+  id                         String   @id @default(cuid())
+  companyId                  String
+  userId                     String
+  yearMonth                  String
+  fiscalYearStartMonth       String
+  closingDate                DateTime
+  paymentDate                DateTime
+  cumulativeGrossProfit      Decimal  @db.Decimal(14, 0)
+  commissionRate             Decimal  @db.Decimal(5, 2)
+  cumulativeCommissionAmount Decimal  @db.Decimal(14, 0)
+  priorPaidAmount            Decimal  @db.Decimal(14, 0)
+  payoutAmount               Decimal  @db.Decimal(14, 0)
+  createdByUserId            String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@unique([userId, yearMonth])
+  @@index([companyId, yearMonth])
+  @@index([companyId, fiscalYearStartMonth])
 }
 
 model UserMonthlyExpense {

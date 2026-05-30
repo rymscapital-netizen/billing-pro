@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth"
+import { calculateProjectGrossProfit } from "@/lib/commission"
 import { prisma } from "@/lib/prisma"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
@@ -16,6 +17,7 @@ function normalizeInvoice(row: any) {
     company: Array.isArray(row.company) ? (row.company[0] ?? null) : row.company,
     payments: Array.isArray(row.payments) ? row.payments : [],
     profit: Array.isArray(row.profit) ? (row.profit[0] ?? null) : row.profit,
+    projectExpenses: Array.isArray(row.projectExpenses) ? row.projectExpenses : [],
     assignedUser: Array.isArray(row.assignedUser)
       ? (row.assignedUser[0] ?? null)
       : row.assignedUser,
@@ -29,7 +31,7 @@ function normalizeInvoice(row: any) {
 }
 
 const invoiceSelect =
-  "*, company:Company!companyId(*), payments:InvoicePayment(*), profit:InvoiceProfit(*), assignedUser:User!assignedUserId(id,name), assignments:InvoiceAssignment(*, user:User!userId(id,name))"
+  "*, company:Company!companyId(*), payments:InvoicePayment(*), profit:InvoiceProfit(*), projectExpenses:ProjectExpense(*), assignedUser:User!assignedUserId(id,name), assignments:InvoiceAssignment(*, user:User!userId(id,name))"
 
 function normalizeAssignments(assignments: { userId?: string; shareRate?: number }[] | undefined, assignedUserId?: string | null) {
   const source = assignments?.length
@@ -90,7 +92,11 @@ export async function GET(
     linkedReceivedInvoices = data ?? []
   }
 
-  return NextResponse.json({ ...invoice, linkedReceivedInvoices })
+  return NextResponse.json({
+    ...invoice,
+    linkedReceivedInvoices,
+    projectGrossProfit: calculateProjectGrossProfit({ ...invoice, linkedReceivedInvoices }),
+  })
 }
 
 export async function PATCH(

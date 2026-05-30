@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth"
+import { taxExcludedFromIncluded } from "@/lib/commission"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
@@ -45,10 +46,12 @@ function getSb() {
 async function syncProfit(sb: ReturnType<typeof getSb>, invoiceId: string) {
   const { data: rows } = await sb.from("ReceivedInvoice")
     .select("amount").eq("invoiceId", invoiceId)
-  if (!rows?.length) return
+  const { data: projectExpenses } = await sb.from("ProjectExpense")
+    .select("amount, taxRate").eq("invoiceId", invoiceId)
 
-  const totalInc    = rows.reduce((s: number, r: any) => s + Number(r.amount), 0)
-  const cost        = Math.round(totalInc / 1.1)
+  const receivedCost = (rows ?? []).reduce((s: number, r: any) => s + taxExcludedFromIncluded(r.amount, 10), 0)
+  const extraCost = (projectExpenses ?? []).reduce((s: number, r: any) => s + taxExcludedFromIncluded(r.amount, r.taxRate), 0)
+  const cost = receivedCost + extraCost
 
   const { data: profit } = await sb.from("InvoiceProfit")
     .select("*").eq("invoiceId", invoiceId).limit(1)

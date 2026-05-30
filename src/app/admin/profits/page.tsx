@@ -129,7 +129,7 @@ type FiscalSummary = {
 }
 
 type ProfitData = {
-  users: { id: string; name: string; commissionRate: number }[]
+  users: { id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "TRIAL_20" }[]
   canViewAllUsers: boolean
   totals: ProfitTotals
   groups: ProfitGroup[]
@@ -318,7 +318,9 @@ function InvoiceTable({
 export default function AdminProfitsPage() {
   const [yearMonth, setYearMonth] = useState(currentMonth)
   const [assignedUserId, setAssignedUserId] = useState("")
-  const [users, setUsers] = useState<{ id: string; name: string; commissionRate: number }[]>([])
+  const [users, setUsers] = useState<{ id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "TRIAL_20" }[]>([])
+  const [payoutPreview, setPayoutPreview] = useState<any>(null)
+  const [payoutSaving, setPayoutSaving] = useState(false)
   const [data, setData] = useState<ProfitData | null>(null)
   const [expenseForms, setExpenseForms] = useState<Record<string, UserExpense>>({})
   const [savingExpenseId, setSavingExpenseId] = useState("")
@@ -348,6 +350,7 @@ export default function AdminProfitsPage() {
         nextForms[expense.userId] = { ...blankExpense(expense.userId, yearMonth), ...expense }
       }
       setExpenseForms(nextForms)
+      setPayoutPreview(null)
     } catch (error: any) {
       showToast(error?.message ?? "担当者別利益の取得に失敗しました", false)
       setData(null)
@@ -355,6 +358,37 @@ export default function AdminProfitsPage() {
       setLoading(false)
     }
   }, [yearMonth, assignedUserId])
+
+  const fetchPayoutPreview = useCallback(async () => {
+    if (!assignedUserId) return
+    const res = await fetch(`/api/commission-payouts?userId=${assignedUserId}&yearMonth=${yearMonth}`)
+    const body = await res.json().catch(() => null)
+    if (!res.ok) {
+      showToast(body?.error ?? "歩合プレビューの取得に失敗しました", false)
+      return
+    }
+    setPayoutPreview(body)
+  }, [assignedUserId, yearMonth])
+
+  const finalizePayout = async () => {
+    if (!assignedUserId) return
+    setPayoutSaving(true)
+    try {
+      const res = await fetch("/api/commission-payouts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: assignedUserId, yearMonth }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? "歩合確定に失敗しました")
+      setPayoutPreview(body)
+      showToast("歩合支給額を確定しました")
+    } catch (error: any) {
+      showToast(error?.message ?? "歩合確定に失敗しました", false)
+    } finally {
+      setPayoutSaving(false)
+    }
+  }
 
   const updateExpenseField = (userId: string, field: keyof UserExpense, value: string) => {
     setExpenseForms(prev => {
@@ -568,6 +602,40 @@ export default function AdminProfitsPage() {
             icon={<Wallet size={18} />}
           />
         </div>
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/55 p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-[15px] font-semibold text-navy-900">歩合支給額の確定</h2>
+            <p className="text-[12px] text-navy-400 mt-1">
+              6月から選択月末までの入金確認済み案件粗利で累計歩合を再計算し、過去確定分との差額を翌月10日支給として保存します。
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn bg-white" onClick={fetchPayoutPreview} disabled={!assignedUserId || loading}>
+              <RefreshCw size={14} />
+              プレビュー
+            </button>
+            <button type="button" className="btn btn-navy" onClick={finalizePayout} disabled={!assignedUserId || payoutSaving || !payoutPreview}>
+              <Save size={14} />
+              {payoutSaving ? "確定中..." : "確定保存"}
+            </button>
+          </div>
+        </div>
+        {!assignedUserId ? (
+          <p className="text-[12px] text-navy-500">担当者を1名選択すると、月末締めの歩合支給額を確認できます。</p>
+        ) : payoutPreview ? (
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <SummaryCard label="当月対象粗利" value={yen(payoutPreview.monthGrossProfit)} tone="blue" icon={<Wallet size={18} />} />
+            <SummaryCard label="決算期累計粗利" value={yen(payoutPreview.cumulativeGrossProfit)} tone="green" icon={<TrendingUp size={18} />} />
+            <SummaryCard label="適用歩合率" value={pct(payoutPreview.commissionRate)} note={payoutPreview.commissionMode === "TRIAL_20" ? "試用期間20%" : "累計粗利で変動"} tone="amber" icon={<Calculator size={18} />} />
+            <SummaryCard label="累計歩合額" value={yen(payoutPreview.cumulativeCommissionAmount)} note={`確定済み ${yen(payoutPreview.priorPaidAmount)}`} tone="navy" icon={<CheckCircle2 size={18} />} />
+            <SummaryCard label="今回支給額" value={yen(payoutPreview.payoutAmount)} note={`${String(payoutPreview.paymentDate).slice(0, 10)} 支給`} tone="green" icon={<Save size={18} />} />
+          </div>
+        ) : (
+          <p className="text-[12px] text-navy-500">プレビューを押すと、今回支給額を確認できます。</p>
+        )}
       </section>
 
       <section className="space-y-3">

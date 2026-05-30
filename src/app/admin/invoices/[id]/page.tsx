@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { StatusBadge } from "@/components/shared/StatusBadge"
 import { PaymentModal } from "@/components/admin/PaymentModal"
 import { ClearModal } from "@/components/admin/ClearModal"
-import { ArrowLeft, ExternalLink, Trash2, Pencil, X, Check, ScanText, CheckCircle2, AlertCircle, Loader2 } from "lucide-react"
+import { ArrowLeft, ExternalLink, Trash2, Pencil, X, Check, ScanText, CheckCircle2, AlertCircle, Loader2, Plus } from "lucide-react"
 import Link from "next/link"
 import { FileDropZone } from "@/components/shared/FileDropZone"
 
@@ -76,6 +76,12 @@ export default function InvoiceDetailPage() {
     issueDate: new Date().toISOString().slice(0, 10),
     dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
     amount: "", taxRate: 10, notes: "", assignedUserId: "",
+  })
+  const [projectExpenseSaving, setProjectExpenseSaving] = useState(false)
+  const [projectExpense, setProjectExpense] = useState({
+    label: "", amount: "", taxRate: 10,
+    expenseDate: new Date().toISOString().slice(0, 10),
+    memo: "",
   })
 
   // 商品画像
@@ -337,6 +343,40 @@ export default function InvoiceDetailPage() {
       setNewRcv({ vendorName: "", subject: "", issueDate: new Date().toISOString().slice(0, 10), dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), amount: "", taxRate: 10, notes: "", assignedUserId: "" })
       setRcvPdfFile(null); setShowNewRcv(false)
     } catch (e) { console.error(e) } finally { setNewRcvSaving(false) }
+  }
+
+  const handleCreateProjectExpense = async () => {
+    if (!projectExpense.label.trim() || !projectExpense.amount) return
+    setProjectExpenseSaving(true)
+    try {
+      const res = await fetch(`/api/invoices/${id}/project-expenses`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: projectExpense.label.trim(),
+          amount: Number(projectExpense.amount),
+          taxRate: Number(projectExpense.taxRate),
+          expenseDate: projectExpense.expenseDate || null,
+          memo: projectExpense.memo || null,
+        }),
+      })
+      if (!res.ok) throw new Error("案件経費の追加に失敗しました")
+      setProjectExpense({
+        label: "", amount: "", taxRate: 10,
+        expenseDate: new Date().toISOString().slice(0, 10),
+        memo: "",
+      })
+      await fetchInv()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setProjectExpenseSaving(false)
+    }
+  }
+
+  const handleDeleteProjectExpense = async (expenseId: string) => {
+    await fetch(`/api/project-expenses/${expenseId}`, { method: "DELETE" })
+    await fetchInv()
   }
 
   // ─── 商品画像 helpers ────────────────────────────────────────
@@ -952,6 +992,60 @@ export default function InvoiceDetailPage() {
                   </div>
                 </div>
               )}
+              <div className="mt-4 pt-4 border-t border-navy-100">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] text-navy-400 uppercase tracking-wider">追加案件経費</p>
+                  <span className="text-[11px] text-navy-400">{inv.projectExpenses?.length ?? 0}件</span>
+                </div>
+                {inv.projectExpenses?.length > 0 && (
+                  <div className="space-y-1.5 mb-3">
+                    {inv.projectExpenses.map((expense: any) => {
+                      const inc = Number(expense.amount)
+                      const ex = Math.round(inc / (1 + Number(expense.taxRate ?? 10) / 100))
+                      return (
+                        <div key={expense.id} className="flex items-center justify-between text-[12px] py-1.5 border-b border-navy-50 last:border-0">
+                          <span className="text-navy-600 truncate max-w-[220px]">{expense.label}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="tabular-nums text-navy-800">{yen(ex)}<span className="text-navy-400">（税込 {yen(inc)}）</span></span>
+                            <button type="button" onClick={() => handleDeleteProjectExpense(expense.id)} className="text-red-500 hover:text-red-700">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                <div className="grid grid-cols-5 gap-2">
+                  <input
+                    type="text"
+                    value={projectExpense.label}
+                    onChange={e => setProjectExpense(prev => ({ ...prev, label: e.target.value }))}
+                    placeholder="経費名"
+                    className="form-input col-span-2"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    value={projectExpense.amount}
+                    onChange={e => setProjectExpense(prev => ({ ...prev, amount: e.target.value }))}
+                    placeholder="税込金額"
+                    className="form-input text-right tabular-nums"
+                  />
+                  <select
+                    value={projectExpense.taxRate}
+                    onChange={e => setProjectExpense(prev => ({ ...prev, taxRate: Number(e.target.value) }))}
+                    className="form-input"
+                  >
+                    <option value={10}>10%</option>
+                    <option value={8}>8%</option>
+                    <option value={0}>非課税</option>
+                  </select>
+                  <button type="button" onClick={handleCreateProjectExpense} disabled={projectExpenseSaving} className="btn btn-navy justify-center">
+                    <Plus size={13} />追加
+                  </button>
+                </div>
+              </div>
             </div>
           ) : null}
 

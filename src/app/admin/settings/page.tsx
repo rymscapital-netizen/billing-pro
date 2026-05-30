@@ -25,6 +25,14 @@ const defaultExpenseFields: { key: DefaultExpenseKey; label: string }[] = [
   { key: "defaultSuppliesExpense", label: "備品・消耗品" },
 ]
 
+const commissionTierRows = [
+  "〜14,999,999円: 10%",
+  "15,000,000〜19,999,999円: 15%",
+  "20,000,000〜24,999,999円: 20%",
+  "25,000,000〜29,999,999円: 25%",
+  "30,000,000円〜: 30%",
+]
+
 const blankDefaultExpenses = () => Object.fromEntries(defaultExpenseFields.map(field => [field.key, 0])) as Record<DefaultExpenseKey, number>
 const userDisplayOrder = ["浪田", "西岡", "入内嶋", "髙橋", "高橋"]
 
@@ -74,6 +82,7 @@ export default function SettingsPage() {
   const [staffEmail,    setStaffEmail]    = useState("")
   const [staffPassword, setStaffPassword] = useState("")
   const [staffCommissionRate, setStaffCommissionRate] = useState(0)
+  const [staffCommissionMode, setStaffCommissionMode] = useState<"STANDARD" | "TRIAL_20">("STANDARD")
   const [staffEmploymentStartDate, setStaffEmploymentStartDate] = useState("")
   const [staffDefaultExpenses, setStaffDefaultExpenses] = useState<Record<DefaultExpenseKey, number>>(blankDefaultExpenses)
   const [showStaffPass, setShowStaffPass] = useState(false)
@@ -153,7 +162,8 @@ export default function SettingsPage() {
       body: JSON.stringify({
         name: staffName, email: staffEmail, password: staffPassword,
         role: "ADMIN", companyId: adminCompanyId,
-        commissionRate: staffCommissionRate,
+        commissionRate: 0,
+        commissionMode: staffCommissionMode,
         employmentStartDate: staffEmploymentStartDate || null,
         ...staffDefaultExpenses,
       }),
@@ -161,7 +171,7 @@ export default function SettingsPage() {
     if (res.ok) {
       const newUser = await res.json()
       setUsers(prev => sortUsers([newUser, ...prev]))
-      setStaffName(""); setStaffEmail(""); setStaffPassword(""); setStaffCommissionRate(0); setStaffEmploymentStartDate(""); setStaffDefaultExpenses(blankDefaultExpenses())
+      setStaffName(""); setStaffEmail(""); setStaffPassword(""); setStaffCommissionRate(0); setStaffCommissionMode("STANDARD"); setStaffEmploymentStartDate(""); setStaffDefaultExpenses(blankDefaultExpenses())
       setStaffAdded(true)
       setTimeout(() => setStaffAdded(false), 3000)
     }
@@ -214,6 +224,10 @@ export default function SettingsPage() {
     setUsers(prev => prev.map(user => user.id === userId ? { ...user, commissionRate: rate } : user))
   }
 
+  const handleCommissionModeChange = (userId: string, value: "STANDARD" | "TRIAL_20") => {
+    setUsers(prev => prev.map(user => user.id === userId ? { ...user, commissionMode: value } : user))
+  }
+
   const handleEmploymentStartDateChange = (userId: string, value: string) => {
     setUsers(prev => prev.map(user => user.id === userId ? { ...user, employmentStartDate: value || null } : user))
   }
@@ -233,6 +247,7 @@ export default function SettingsPage() {
       body: JSON.stringify({
         userId,
         commissionRate: Number(target.commissionRate ?? 0),
+        commissionMode: target.commissionMode ?? "STANDARD",
         employmentStartDate: target.employmentStartDate ? String(target.employmentStartDate).slice(0, 10) : null,
         ...Object.fromEntries(defaultExpenseFields.map(field => [field.key, Number(target[field.key] ?? 0)])),
       }),
@@ -423,19 +438,16 @@ export default function SettingsPage() {
               </div>
             </div>
             <div>
-              <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">固定歩合率</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  value={staffCommissionRate}
-                  onChange={e => setStaffCommissionRate(Number(e.target.value) || 0)}
-                  className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] text-right tabular-nums focus:outline-none focus:border-navy-400"
-                />
-                <span className="text-[12px] text-navy-400">%</span>
-              </div>
+              <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">歩合モード</label>
+              <select
+                value={staffCommissionMode}
+                onChange={e => setStaffCommissionMode(e.target.value as "STANDARD" | "TRIAL_20")}
+                className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] focus:outline-none focus:border-navy-400 bg-white"
+              >
+                <option value="STANDARD">通常（累計粗利で変動）</option>
+                <option value="TRIAL_20">試用期間（20%固定）</option>
+              </select>
+              <p className="text-[11px] text-navy-400 mt-1">通常は決算期内の累計粗利で自動判定します。</p>
             </div>
             <div>
               <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">入社日</label>
@@ -559,6 +571,17 @@ export default function SettingsPage() {
           <h2 className="text-[13px] font-medium text-navy-900">登録ユーザー一覧</h2>
           <span className="text-[11px] text-navy-400">{visibleUsers.length}名</span>
         </div>
+        <div className="px-5 py-3 border-b border-navy-100 bg-blue-50">
+          <p className="text-[12px] font-medium text-navy-800">通常変動の歩合率</p>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {commissionTierRows.map(row => (
+              <span key={row} className="px-2 py-1 rounded-md border border-blue-100 bg-white text-[11px] text-navy-600">
+                {row}
+              </span>
+            ))}
+          </div>
+          <p className="text-[11px] text-navy-400 mt-2">支給額は利益集計で担当者を選択し、歩合支給額のプレビューから確認・確定します。</p>
+        </div>
         {/* 法人グループ別に表示 */}
         {(() => {
           type Group = { companyName: string; members: any[] }
@@ -578,7 +601,7 @@ export default function SettingsPage() {
               <table className="w-full text-[12.5px]">
                 <thead>
                   <tr className="bg-white border-b border-navy-100">
-                    {["氏名","メールアドレス","役割","固定歩合率","入社日","ステータス"].map(h => (
+                    {["氏名","メールアドレス","役割","歩合設定","入社日","ステータス"].map(h => (
                       <th key={h} className="text-left px-4 py-2 text-[10.5px] text-navy-400 font-medium">{h}</th>
                     ))}
                   </tr>
@@ -598,18 +621,19 @@ export default function SettingsPage() {
                       </td>
                       <td className="px-4 py-3">
                         {u.role === "ADMIN" ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step={0.1}
-                              value={Number(u.commissionRate ?? 0)}
-                              onChange={e => handleCommissionChange(u.id, Number(e.target.value))}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <select
+                              value={u.commissionMode ?? "STANDARD"}
+                              onChange={e => handleCommissionModeChange(u.id, e.target.value as "STANDARD" | "TRIAL_20")}
                               disabled={!canManageUsers}
-                              className="w-[82px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400"
-                            />
-                            <span className="text-[12px] text-navy-400">%</span>
+                              className="w-[155px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] focus:outline-none focus:border-navy-400 bg-white"
+                            >
+                              <option value="STANDARD">通常変動</option>
+                              <option value="TRIAL_20">試用期間20%</option>
+                            </select>
+                            <span className="text-[11px] text-navy-400">
+                              {(u.commissionMode ?? "STANDARD") === "TRIAL_20" ? "累計粗利に関わらず20%" : "累計粗利で10〜30%"}
+                            </span>
                             {canManageUsers && <button
                               type="button"
                               onClick={() => handleSaveCommission(u.id)}

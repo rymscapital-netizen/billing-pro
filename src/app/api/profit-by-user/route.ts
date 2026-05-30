@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth"
+import { calculateProjectGrossProfit } from "@/lib/commission"
 import { canViewInternalReports } from "@/lib/internal-access"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
@@ -56,7 +57,7 @@ const userExpenseDefaultMap = {
   suppliesExpense: "defaultSuppliesExpense",
 } as const
 
-const profitUserSelect = "id, name, commissionRate, employmentStartDate, defaultBaseSalary, defaultSocialInsurance, defaultEmployeeSocialInsurance, defaultWithholdingTax, defaultTravelExpense, defaultCommunicationCost, defaultWelfareExpense, defaultSuppliesExpense"
+const profitUserSelect = "id, name, commissionRate, commissionMode, employmentStartDate, defaultBaseSalary, defaultSocialInsurance, defaultEmployeeSocialInsurance, defaultWithholdingTax, defaultTravelExpense, defaultCommunicationCost, defaultWelfareExpense, defaultSuppliesExpense"
 
 function calculateExpenseTotal(expense: any) {
   return expenseFields.reduce((sum, field) => sum + toNumber(expense?.[field]), 0)
@@ -262,6 +263,7 @@ function normalizeInvoiceAssignments(row: any, fallbackAssignedUser: any) {
         userId: assignment.userId ?? user?.id,
         userName: user?.name ?? "未設定",
         commissionRate: toNumber(user?.commissionRate),
+        commissionMode: user?.commissionMode ?? "STANDARD",
         shareRate: toNumber(assignment.shareRate),
       }
     })
@@ -274,6 +276,7 @@ function normalizeInvoiceAssignments(row: any, fallbackAssignedUser: any) {
       userId: fallbackAssignedUser.id,
       userName: fallbackAssignedUser.name ?? "未設定",
       commissionRate: toNumber(fallbackAssignedUser.commissionRate),
+      commissionMode: fallbackAssignedUser.commissionMode ?? "STANDARD",
       shareRate: 100,
     }]
   }
@@ -282,6 +285,7 @@ function normalizeInvoiceAssignments(row: any, fallbackAssignedUser: any) {
     userId: "unassigned",
     userName: "未設定",
     commissionRate: 0,
+    commissionMode: "STANDARD",
     shareRate: 100,
   }]
 }
@@ -295,9 +299,10 @@ function addInvoiceToGroupsByAssignments(
   const company = Array.isArray(row.company) ? row.company[0] : row.company
   const profit = Array.isArray(row.profit) ? row.profit[0] : row.profit
   const assignments = normalizeInvoiceAssignments(row, assignedUser)
-  const sales = profit ? toNumber(profit.sales) : toNumber(row.subtotal)
-  const cost = profit ? toNumber(profit.cost) : 0
-  const grossProfit = profit ? toNumber(profit.grossProfit) : sales - cost
+  const project = calculateProjectGrossProfit({ ...row, linkedReceivedInvoices: row.linkedReceivedInvoices ?? row.receivedInvoices })
+  const sales = project.sales
+  const cost = project.cost
+  const grossProfit = project.grossProfit
   const amount = toNumber(row.amount)
   const confirmedAmount = options.confirmedAmount
 
@@ -307,7 +312,7 @@ function addInvoiceToGroupsByAssignments(
     const share = assignment.shareRate / 100
     const userId = assignment.userId
     const userName = assignment.userName
-    const commissionRate = assignment.commissionRate
+    const commissionRate = assignment.commissionMode === "TRIAL_20" ? 20 : assignment.commissionRate
     const assignedSales = sales * share
     const assignedCost = cost * share
     const assignedGrossProfit = grossProfit * share
@@ -687,7 +692,7 @@ export async function GET(req: NextRequest) {
     const fiscalMonthKeys = fiscalMonths.map(formatYearMonth)
 
     let query: any = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, tax, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), assignments:InvoiceAssignment(*, user:User!userId(id, name, commissionRate, employmentStartDate)), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, tax, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, commissionMode, employmentStartDate), assignments:InvoiceAssignment(*, user:User!userId(id, name, commissionRate, commissionMode, employmentStartDate)), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*), projectExpenses:ProjectExpense(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", start)
@@ -695,7 +700,7 @@ export async function GET(req: NextRequest) {
       .order("dueDate", { ascending: false })
 
     let historyQuery: any = sb.from("Invoice")
-      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, tax, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, employmentStartDate), assignments:InvoiceAssignment(*, user:User!userId(id, name, commissionRate, employmentStartDate)), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*)")
+      .select("id, invoiceNumber, subject, issueDate, dueDate, amount, subtotal, tax, status, assignedUserId, assignedUser:User!assignedUserId(id, name, commissionRate, commissionMode, employmentStartDate), assignments:InvoiceAssignment(*, user:User!userId(id, name, commissionRate, commissionMode, employmentStartDate)), company:Company!companyId(id, name), profit:InvoiceProfit(*), payments:InvoicePayment(*), projectExpenses:ProjectExpense(*)")
       .eq("issuerCompanyId", session.user.companyId)
       .neq("status", "DRAFT")
       .gte("dueDate", fiscalStart)
