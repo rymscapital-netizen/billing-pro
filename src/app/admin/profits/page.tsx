@@ -320,6 +320,7 @@ export default function AdminProfitsPage() {
   const [assignedUserId, setAssignedUserId] = useState("")
   const [users, setUsers] = useState<{ id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "FIXED" | "TRIAL_20" }[]>([])
   const [payoutPreview, setPayoutPreview] = useState<any>(null)
+  const [payoutPreviewLoading, setPayoutPreviewLoading] = useState(false)
   const [payoutSaving, setPayoutSaving] = useState(false)
   const [data, setData] = useState<ProfitData | null>(null)
   const [expenseForms, setExpenseForms] = useState<Record<string, UserExpense>>({})
@@ -350,7 +351,6 @@ export default function AdminProfitsPage() {
         nextForms[expense.userId] = { ...blankExpense(expense.userId, yearMonth), ...expense }
       }
       setExpenseForms(nextForms)
-      setPayoutPreview(null)
     } catch (error: any) {
       showToast(error?.message ?? "担当者別利益の取得に失敗しました", false)
       setData(null)
@@ -361,13 +361,18 @@ export default function AdminProfitsPage() {
 
   const fetchPayoutPreview = useCallback(async () => {
     if (!assignedUserId) return
-    const res = await fetch(`/api/commission-payouts?userId=${assignedUserId}&yearMonth=${yearMonth}`)
-    const body = await res.json().catch(() => null)
-    if (!res.ok) {
-      showToast(body?.error ?? "歩合プレビューの取得に失敗しました", false)
-      return
+    setPayoutPreviewLoading(true)
+    try {
+      const res = await fetch(`/api/commission-payouts?userId=${assignedUserId}&yearMonth=${yearMonth}`)
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        showToast(body?.error ?? "歩合プレビューの取得に失敗しました", false)
+        return
+      }
+      setPayoutPreview(body)
+    } finally {
+      setPayoutPreviewLoading(false)
     }
-    setPayoutPreview(body)
   }, [assignedUserId, yearMonth])
 
   const finalizePayout = async () => {
@@ -426,7 +431,18 @@ export default function AdminProfitsPage() {
     fetchData()
   }, [fetchData])
 
+  useEffect(() => {
+    if (assignedUserId) {
+      fetchPayoutPreview()
+    }
+  }, [assignedUserId, yearMonth, fetchPayoutPreview])
+
   const groups = useMemo(() => data?.groups ?? [], [data])
+  const payoutPreviewIsCurrent = Boolean(
+    payoutPreview &&
+    payoutPreview.userId === assignedUserId &&
+    payoutPreview.yearMonth === yearMonth
+  )
   const canViewAllUsers = data?.canViewAllUsers ?? true
   const currentUserName = users[0]?.name ?? ""
   const expenseUsers = useMemo(
@@ -613,11 +629,11 @@ export default function AdminProfitsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" className="btn bg-white" onClick={fetchPayoutPreview} disabled={!assignedUserId || loading}>
-              <RefreshCw size={14} />
+            <button type="button" className="btn bg-white" onClick={fetchPayoutPreview} disabled={!assignedUserId || loading || payoutPreviewLoading}>
+              <RefreshCw size={14} className={payoutPreviewLoading ? "animate-spin" : ""} />
               プレビュー
             </button>
-            <button type="button" className="btn btn-navy" onClick={finalizePayout} disabled={!assignedUserId || payoutSaving || !payoutPreview}>
+            <button type="button" className="btn btn-navy" onClick={finalizePayout} disabled={!assignedUserId || payoutSaving || !payoutPreviewIsCurrent}>
               <Save size={14} />
               {payoutSaving ? "確定中..." : "確定保存"}
             </button>
@@ -626,7 +642,7 @@ export default function AdminProfitsPage() {
         {!assignedUserId ? (
           <p className="text-[12px] text-navy-500">担当者を1名選択すると、月末締めの歩合支給額を確認できます。</p>
         ) : payoutPreview ? (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className={`grid grid-cols-1 md:grid-cols-5 gap-3 transition-opacity ${payoutPreviewIsCurrent ? "opacity-100" : "opacity-55"}`}>
             <SummaryCard label="当月対象粗利" value={yen(payoutPreview.monthGrossProfit)} tone="blue" icon={<Wallet size={18} />} />
             <SummaryCard label="決算期累計粗利" value={yen(payoutPreview.cumulativeGrossProfit)} tone="green" icon={<TrendingUp size={18} />} />
             <SummaryCard label="適用歩合率" value={pct(payoutPreview.commissionRate)} note={payoutPreview.commissionMode === "TRIAL_20" ? "試用期間20%" : payoutPreview.commissionMode === "FIXED" ? "固定歩合率" : "累計粗利で変動"} tone="amber" icon={<Calculator size={18} />} />
