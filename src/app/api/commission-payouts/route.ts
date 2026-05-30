@@ -61,7 +61,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
   if (!userRow) throw new Error("User not found")
 
   const { data: invoices, error: invoiceError } = await sb.from("Invoice")
-    .select("id, subtotal, status, payments:InvoicePayment(*), assignedUser:User!assignedUserId(id, commissionMode, commissionRate), assignments:InvoiceAssignment(*, user:User!userId(id, commissionMode, commissionRate)), profit:InvoiceProfit(*), projectExpenses:ProjectExpense(*)")
+    .select("id, subtotal, dueDate, status, payments:InvoicePayment(*), assignedUser:User!assignedUserId(id, commissionMode, commissionRate), assignments:InvoiceAssignment(*, user:User!userId(id, commissionMode, commissionRate)), profit:InvoiceProfit(*), projectExpenses:ProjectExpense(*)")
     .eq("issuerCompanyId", companyId)
     .in("status", ["PAYMENT_CONFIRMED", "CLEARED"])
   if (invoiceError) throw new Error(invoiceError.message)
@@ -88,7 +88,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     const payment = (Array.isArray(invoice.payments) ? invoice.payments : [])
       .find((row: any) => row.paymentStatus === "CONFIRMED" && row.paymentDate)
     if (!payment?.paymentDate) continue
-    if (payment.paymentDate < fiscal.start || payment.paymentDate >= month.endExclusive) continue
+    if (!invoice.dueDate || invoice.dueDate < fiscal.start || invoice.dueDate >= month.endExclusive) continue
 
     const assignments = normalizeAssignments(invoice)
     const assignment = assignments.find((row: any) => row.userId === userId)
@@ -103,12 +103,13 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     const share = assignment.shareRate / 100
     const grossProfit = project.grossProfit * share
     cumulativeGrossProfit += grossProfit
-    if (payment.paymentDate >= month.start && payment.paymentDate < month.endExclusive) {
+    if (invoice.dueDate >= month.start && invoice.dueDate < month.endExclusive) {
       monthGrossProfit += grossProfit
     }
     items.push({
       invoiceId: invoice.id,
       paymentDate: payment.paymentDate,
+      dueDate: invoice.dueDate,
       shareRate: assignment.shareRate,
       grossProfit,
     })
@@ -125,6 +126,10 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     .lt("yearMonth", yearMonth)
   if (payoutError) throw new Error(payoutError.message)
   const priorPaidAmount = (priorPayouts ?? []).reduce((sum: number, row: any) => sum + toNumber(row.payoutAmount), 0)
+  const isCatchUpMode = commissionMode === "STANDARD"
+  const payoutAmount = isCatchUpMode
+    ? Math.max(cumulativeCommissionAmount - priorPaidAmount, 0)
+    : Math.round(monthGrossProfit * (commissionRate / 100))
 
   const { data: existing, error: existingError } = await sb.from("CommissionPayout")
     .select("*")
@@ -145,7 +150,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     commissionRate,
     cumulativeCommissionAmount,
     priorPaidAmount: Math.round(priorPaidAmount),
-    payoutAmount: Math.max(cumulativeCommissionAmount - priorPaidAmount, 0),
+    payoutAmount,
     existing,
     items,
   }
