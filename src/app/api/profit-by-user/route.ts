@@ -705,7 +705,8 @@ function buildTargetPlan(params: {
     const targetCommissionAmount = Math.round(toNumber(user.targetCommissionAmount))
     const mode = (user.commissionMode ?? "STANDARD") as CommissionMode
     const fixedRate = toNumber(user.commissionRate)
-    const requiredGrossProfit = requiredGrossProfitForCommission(targetCommissionAmount, mode, fixedRate)
+    const commissionGoalGrossProfit = requiredGrossProfitForCommission(targetCommissionAmount, mode, fixedRate)
+    const requiredGrossProfit = Math.max(allocatedGrossProfitTarget, commissionGoalGrossProfit)
     const simulatedRate = resolveCommissionRate(requiredGrossProfit, mode, fixedRate)
     const simulatedCommissionAmount = Math.round(requiredGrossProfit * (simulatedRate / 100))
     const monthlyExpense = normalizeExpense(params.expensesByUserId.get(user.id))
@@ -732,6 +733,7 @@ function buildTargetPlan(params: {
       explicitTargetGrossProfitShare: toNumber(user.targetGrossProfitShare),
       allocatedGrossProfitTarget,
       targetCommissionAmount,
+      commissionGoalGrossProfit,
       requiredGrossProfit,
       simulatedCommissionRate: simulatedRate,
       simulatedCommissionAmount,

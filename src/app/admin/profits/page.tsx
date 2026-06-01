@@ -137,6 +137,7 @@ type TargetPlanUser = {
   explicitTargetGrossProfitShare: number
   allocatedGrossProfitTarget: number
   targetCommissionAmount: number
+  commissionGoalGrossProfit?: number
   requiredGrossProfit: number
   simulatedCommissionRate: number
   simulatedCommissionAmount: number
