@@ -350,6 +350,11 @@ export default function AdminProfitsPage() {
   const [yearMonth, setYearMonth] = useState(currentMonth)
   const [assignedUserId, setAssignedUserId] = useState("")
   const [users, setUsers] = useState<{ id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "FIXED" | "TRIAL_20"; targetGrossProfitShare?: number; targetCommissionAmount?: number }[]>([])
+  const [targetForm, setTargetForm] = useState<{
+    annualGrossProfitTarget: number
+    users: Record<string, { targetGrossProfitShare: number; targetCommissionAmount: number }>
+  }>({ annualGrossProfitTarget: 0, users: {} })
+  const [targetSaving, setTargetSaving] = useState(false)
   const [payoutPreview, setPayoutPreview] = useState<any>(null)
   const [payoutPreviewLoading, setPayoutPreviewLoading] = useState(false)
   const [payoutSaving, setPayoutSaving] = useState(false)
@@ -458,9 +463,67 @@ export default function AdminProfitsPage() {
     }
   }
 
+  const updateTargetField = (
+    userId: string,
+    field: "targetGrossProfitShare" | "targetCommissionAmount",
+    value: string
+  ) => {
+    const amount = Math.max(0, Number(value) || 0)
+    setTargetForm(prev => ({
+      ...prev,
+      users: {
+        ...prev.users,
+        [userId]: {
+          targetGrossProfitShare: prev.users[userId]?.targetGrossProfitShare ?? 0,
+          targetCommissionAmount: prev.users[userId]?.targetCommissionAmount ?? 0,
+          [field]: field === "targetGrossProfitShare" ? Math.min(amount, 100) : amount,
+        },
+      },
+    }))
+  }
+
+  const saveTargetPlan = async () => {
+    if (!data?.targetPlan) return
+    setTargetSaving(true)
+    try {
+      const targetRows = data.targetPlan.users.map(row => ({
+        userId: row.userId,
+        targetGrossProfitShare: Number(targetForm.users[row.userId]?.targetGrossProfitShare ?? row.explicitTargetGrossProfitShare ?? 0),
+        targetCommissionAmount: Number(targetForm.users[row.userId]?.targetCommissionAmount ?? row.targetCommissionAmount ?? 0),
+      }))
+      const res = await fetch("/api/profit-targets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          annualGrossProfitTarget: canViewAllUsers ? Number(targetForm.annualGrossProfitTarget ?? 0) : undefined,
+          users: targetRows,
+        }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? "目標設定の保存に失敗しました")
+      showToast("目標設定を保存しました")
+      await fetchData()
+    } catch (error: any) {
+      showToast(error?.message ?? "目標設定の保存に失敗しました", false)
+    } finally {
+      setTargetSaving(false)
+    }
+  }
+
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  useEffect(() => {
+    if (!data?.targetPlan) return
+    setTargetForm({
+      annualGrossProfitTarget: data.targetPlan.annualGrossProfitTarget,
+      users: Object.fromEntries(data.targetPlan.users.map(row => [row.userId, {
+        targetGrossProfitShare: row.explicitTargetGrossProfitShare,
+        targetCommissionAmount: row.targetCommissionAmount,
+      }])),
+    })
+  }, [data?.targetPlan])
 
   useEffect(() => {
     if (assignedUserId) {
@@ -653,16 +716,45 @@ export default function AdminProfitsPage() {
 
       {data?.targetPlan && (
         <section className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/55 p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h2 className="text-[15px] font-semibold text-navy-900">会社年間目標・歩合シミュレーション</h2>
               <p className="text-[12px] text-navy-400 mt-1">
                 設定の年間目標粗利と各担当者の目標歩合額から、必要粗利・想定歩合・会社に残る利益を試算しています。
               </p>
             </div>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
             <p className="text-[12px] text-navy-400">
               {data.targetPlan.allocationMode === "EQUAL_SHARE" ? "配分率未設定のため均等割" : `配分率合計 ${pct(data.targetPlan.totalExplicitShare)}`}
             </p>
+              <button
+                type="button"
+                className="btn btn-navy"
+                onClick={saveTargetPlan}
+                disabled={targetSaving || loading}
+              >
+                <Save size={14} />
+                {targetSaving ? "保存中..." : "目標を保存"}
+              </button>
+            </div>
+          </div>
+          <div className="rounded-lg border border-emerald-100 bg-white p-3">
+            <label className="block max-w-[360px]">
+              <span className="block text-[11px] text-navy-400 mb-1">会社年間目標粗利</span>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={Number(targetForm.annualGrossProfitTarget ?? 0)}
+                onChange={event => setTargetForm(prev => ({
+                  ...prev,
+                  annualGrossProfitTarget: Math.max(0, Number(event.target.value) || 0),
+                }))}
+                disabled={!canViewAllUsers}
+                className="form-input text-right tabular-nums bg-white"
+              />
+            </label>
+            <p className="text-[11px] text-navy-400 mt-2">配分率と目標歩合額は下の担当者別表で直接変更できます。保存後に必要粗利と会社残利益を再計算します。</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <SummaryCard
@@ -718,9 +810,31 @@ export default function AdminProfitsPage() {
                 ) : data.targetPlan.users.map(row => (
                   <tr key={row.userId}>
                     <td className="primary">{row.userName}</td>
-                    <td className="amount">{pct(row.targetGrossProfitShare)}</td>
+                    <td className="amount">
+                      <div className="flex items-center justify-end gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={0.1}
+                          value={Number(targetForm.users[row.userId]?.targetGrossProfitShare ?? row.explicitTargetGrossProfitShare ?? 0)}
+                          onChange={event => updateTargetField(row.userId, "targetGrossProfitShare", event.target.value)}
+                          className="w-[82px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400 bg-white"
+                        />
+                        <span className="text-[11px] text-navy-400">%</span>
+                      </div>
+                    </td>
                     <td className="amount text-blue-700">{yen(row.allocatedGrossProfitTarget)}</td>
-                    <td className="amount text-gold-700">{yen(row.targetCommissionAmount)}</td>
+                    <td className="amount text-gold-700">
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={Number(targetForm.users[row.userId]?.targetCommissionAmount ?? row.targetCommissionAmount ?? 0)}
+                        onChange={event => updateTargetField(row.userId, "targetCommissionAmount", event.target.value)}
+                        className="w-[120px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400 bg-white"
+                      />
+                    </td>
                     <td className="amount text-navy-700">{yen(row.requiredGrossProfit)}</td>
                     <td className="amount">{pct(row.simulatedCommissionRate)}</td>
                     <td className="amount text-gold-700">{yen(row.simulatedCommissionAmount)}</td>
