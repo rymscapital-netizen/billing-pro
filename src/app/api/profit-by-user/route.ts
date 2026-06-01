@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth"
-import { calculateProjectGrossProfit } from "@/lib/commission"
+import { COMMISSION_TIERS, calculateProjectGrossProfit, resolveCommissionRate, type CommissionMode } from "@/lib/commission"
 import { canViewInternalReports } from "@/lib/internal-access"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
@@ -57,7 +57,7 @@ const userExpenseDefaultMap = {
   suppliesExpense: "defaultSuppliesExpense",
 } as const
 
-const profitUserSelect = "id, name, commissionRate, commissionMode, employmentStartDate, defaultBaseSalary, defaultSocialInsurance, defaultEmployeeSocialInsurance, defaultWithholdingTax, defaultTravelExpense, defaultCommunicationCost, defaultWelfareExpense, defaultSuppliesExpense"
+const profitUserSelect = "id, name, commissionRate, commissionMode, targetGrossProfitShare, targetCommissionAmount, employmentStartDate, defaultBaseSalary, defaultSocialInsurance, defaultEmployeeSocialInsurance, defaultWithholdingTax, defaultTravelExpense, defaultCommunicationCost, defaultWelfareExpense, defaultSuppliesExpense"
 
 function calculateExpenseTotal(expense: any) {
   return expenseFields.reduce((sum, field) => sum + toNumber(expense?.[field]), 0)
@@ -671,6 +671,115 @@ function buildFiscalSummary(params: {
   }
 }
 
+function requiredGrossProfitForCommission(targetCommission: number, mode: CommissionMode, fixedRate: number) {
+  const target = Math.max(Math.round(targetCommission), 0)
+  if (target <= 0) return 0
+
+  if (mode === "FIXED" || mode === "TRIAL_20") {
+    const rate = mode === "TRIAL_20" ? 20 : Math.max(fixedRate, 0)
+    return rate > 0 ? Math.ceil(target / (rate / 100)) : 0
+  }
+
+  for (let index = 0; index < COMMISSION_TIERS.length; index += 1) {
+    const tier = COMMISSION_TIERS[index]
+    const nextTier = COMMISSION_TIERS[index + 1]
+    const candidate = Math.max(Math.ceil(target / (tier.rate / 100)), tier.min)
+    if (!nextTier || candidate < nextTier.min) return candidate
+  }
+
+  return 0
+}
+
+function buildTargetPlan(params: {
+  users: any[]
+  expensesByUserId: Map<string, any>
+  annualGrossProfitTarget: number
+}) {
+  const activeUsers = params.users.filter(user => user?.id)
+  const totalExplicitShare = activeUsers.reduce((sum, user) => sum + toNumber(user.targetGrossProfitShare), 0)
+  const equalShare = activeUsers.length > 0 ? 100 / activeUsers.length : 0
+
+  const rows = activeUsers.map(user => {
+    const share = totalExplicitShare > 0 ? toNumber(user.targetGrossProfitShare) : equalShare
+    const allocatedGrossProfitTarget = Math.round(params.annualGrossProfitTarget * (share / 100))
+    const targetCommissionAmount = Math.round(toNumber(user.targetCommissionAmount))
+    const mode = (user.commissionMode ?? "STANDARD") as CommissionMode
+    const fixedRate = toNumber(user.commissionRate)
+    const requiredGrossProfit = requiredGrossProfitForCommission(targetCommissionAmount, mode, fixedRate)
+    const simulatedRate = resolveCommissionRate(requiredGrossProfit, mode, fixedRate)
+    const simulatedCommissionAmount = Math.round(requiredGrossProfit * (simulatedRate / 100))
+    const monthlyExpense = normalizeExpense(params.expensesByUserId.get(user.id))
+    const monthlyFixedExpense = Math.max(
+      toNumber(monthlyExpense.totalExpense) -
+        toNumber(monthlyExpense.corporateTax) -
+        toNumber(monthlyExpense.paidCommission),
+      0
+    )
+    const annualFixedExpense = Math.round(monthlyFixedExpense * 12)
+    const simulatedCorporateTax = Math.round(Math.max(requiredGrossProfit, 0) * CORPORATE_EFFECTIVE_TAX_RATE)
+    const simulatedRetainedProfit = requiredGrossProfit - simulatedCommissionAmount - annualFixedExpense - simulatedCorporateTax
+    const allocatedRate = resolveCommissionRate(allocatedGrossProfitTarget, mode, fixedRate)
+    const allocatedCommissionAmount = Math.round(allocatedGrossProfitTarget * (allocatedRate / 100))
+    const allocatedCorporateTax = Math.round(Math.max(allocatedGrossProfitTarget, 0) * CORPORATE_EFFECTIVE_TAX_RATE)
+    const allocatedRetainedProfit = allocatedGrossProfitTarget - allocatedCommissionAmount - annualFixedExpense - allocatedCorporateTax
+
+    return {
+      userId: user.id,
+      userName: user.name,
+      commissionMode: mode,
+      fixedCommissionRate: fixedRate,
+      targetGrossProfitShare: share,
+      explicitTargetGrossProfitShare: toNumber(user.targetGrossProfitShare),
+      allocatedGrossProfitTarget,
+      targetCommissionAmount,
+      requiredGrossProfit,
+      simulatedCommissionRate: simulatedRate,
+      simulatedCommissionAmount,
+      annualFixedExpense,
+      simulatedCorporateTax,
+      simulatedRetainedProfit,
+      allocatedCommissionRate: allocatedRate,
+      allocatedCommissionAmount,
+      allocatedCorporateTax,
+      allocatedRetainedProfit,
+    }
+  })
+
+  const totals = rows.reduce((sum, row) => ({
+    targetGrossProfitShare: sum.targetGrossProfitShare + row.targetGrossProfitShare,
+    allocatedGrossProfitTarget: sum.allocatedGrossProfitTarget + row.allocatedGrossProfitTarget,
+    targetCommissionAmount: sum.targetCommissionAmount + row.targetCommissionAmount,
+    requiredGrossProfit: sum.requiredGrossProfit + row.requiredGrossProfit,
+    simulatedCommissionAmount: sum.simulatedCommissionAmount + row.simulatedCommissionAmount,
+    annualFixedExpense: sum.annualFixedExpense + row.annualFixedExpense,
+    simulatedCorporateTax: sum.simulatedCorporateTax + row.simulatedCorporateTax,
+    simulatedRetainedProfit: sum.simulatedRetainedProfit + row.simulatedRetainedProfit,
+    allocatedCommissionAmount: sum.allocatedCommissionAmount + row.allocatedCommissionAmount,
+    allocatedCorporateTax: sum.allocatedCorporateTax + row.allocatedCorporateTax,
+    allocatedRetainedProfit: sum.allocatedRetainedProfit + row.allocatedRetainedProfit,
+  }), {
+    targetGrossProfitShare: 0,
+    allocatedGrossProfitTarget: 0,
+    targetCommissionAmount: 0,
+    requiredGrossProfit: 0,
+    simulatedCommissionAmount: 0,
+    annualFixedExpense: 0,
+    simulatedCorporateTax: 0,
+    simulatedRetainedProfit: 0,
+    allocatedCommissionAmount: 0,
+    allocatedCorporateTax: 0,
+    allocatedRetainedProfit: 0,
+  })
+
+  return {
+    annualGrossProfitTarget: params.annualGrossProfitTarget,
+    allocationMode: totalExplicitShare > 0 ? "EXPLICIT_SHARE" : "EQUAL_SHARE",
+    totalExplicitShare,
+    users: rows,
+    totals,
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await auth()
@@ -766,7 +875,7 @@ export async function GET(req: NextRequest) {
       rentUsersQuery,
       expensesQuery,
       historyExpensesQuery,
-      sb.from("Company").select("officeRent, officeRentStartDate").eq("id", session.user.companyId).maybeSingle(),
+      sb.from("Company").select("officeRent, officeRentStartDate, annualGrossProfitTarget").eq("id", session.user.companyId).maybeSingle(),
       receivedTaxQuery,
     ])
     if (error) throw new Error(error.message)
@@ -782,10 +891,21 @@ export async function GET(req: NextRequest) {
     const rentUsers = rentUserRows ?? users
     const officeRent = toNumber(companySettings?.officeRent)
     const officeRentStartDate = companySettings?.officeRentStartDate ?? null
+    const annualGrossProfitTarget = toNumber(companySettings?.annualGrossProfitTarget)
     const effectiveOfficeRent = effectiveOfficeRentForMonth(yearMonth, officeRent, officeRentStartDate)
     const currentExpenses = applyOfficeRentToExpenses(expenses ?? [], rentUsers, yearMonth, officeRent, officeRentStartDate)
       .filter((expense: any) => !effectiveAssignedUserId || expense.userId === effectiveAssignedUserId)
     const expensesByUserId = new Map<string, any>(currentExpenses.map((expense: any) => [expense.userId, expense]))
+    const targetPlanUsers = (effectiveAssignedUserId ? rentUsers.filter((user: any) => user.id === effectiveAssignedUserId) : rentUsers) ?? []
+    const targetPlanExpenses = new Map<string, any>(
+      applyOfficeRentToExpenses(expenses ?? [], targetPlanUsers, yearMonth, officeRent, officeRentStartDate)
+        .map((expense: any) => [expense.userId, expense])
+    )
+    const targetPlan = buildTargetPlan({
+      users: targetPlanUsers,
+      expensesByUserId: targetPlanExpenses,
+      annualGrossProfitTarget,
+    })
     const groups = groupDueInvoices(data ?? [], expensesByUserId, users, effectiveAssignedUserId)
     const totals = buildTotals(groups)
     const groupExpenses = groups.map(group => group.expenses).filter(Boolean)
@@ -811,7 +931,9 @@ export async function GET(req: NextRequest) {
       expenses: groupExpenses,
       officeRent,
       officeRentStartDate,
+      annualGrossProfitTarget,
       effectiveOfficeRent,
+      targetPlan,
       fiscalYear: {
         startMonth: formatYearMonth(fiscalMonths[0]),
         endMonth: formatYearMonth(fiscalMonths[11]),

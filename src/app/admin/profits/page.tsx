@@ -128,15 +128,46 @@ type FiscalSummary = {
   profitRate: number
 }
 
+type TargetPlanUser = {
+  userId: string
+  userName: string
+  commissionMode: "STANDARD" | "FIXED" | "TRIAL_20"
+  fixedCommissionRate: number
+  targetGrossProfitShare: number
+  explicitTargetGrossProfitShare: number
+  allocatedGrossProfitTarget: number
+  targetCommissionAmount: number
+  requiredGrossProfit: number
+  simulatedCommissionRate: number
+  simulatedCommissionAmount: number
+  annualFixedExpense: number
+  simulatedCorporateTax: number
+  simulatedRetainedProfit: number
+  allocatedCommissionRate: number
+  allocatedCommissionAmount: number
+  allocatedCorporateTax: number
+  allocatedRetainedProfit: number
+}
+
+type TargetPlan = {
+  annualGrossProfitTarget: number
+  allocationMode: "EXPLICIT_SHARE" | "EQUAL_SHARE"
+  totalExplicitShare: number
+  users: TargetPlanUser[]
+  totals: Omit<TargetPlanUser, "userId" | "userName" | "commissionMode" | "fixedCommissionRate" | "explicitTargetGrossProfitShare" | "simulatedCommissionRate" | "allocatedCommissionRate">
+}
+
 type ProfitData = {
-  users: { id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "FIXED" | "TRIAL_20" }[]
+  users: { id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "FIXED" | "TRIAL_20"; targetGrossProfitShare?: number; targetCommissionAmount?: number }[]
   canViewAllUsers: boolean
   totals: ProfitTotals
   groups: ProfitGroup[]
   expenses: UserExpense[]
   officeRent: number
   officeRentStartDate?: string | null
+  annualGrossProfitTarget?: number
   effectiveOfficeRent?: number
+  targetPlan?: TargetPlan
   fiscalSummary: FiscalSummary
   history: ProfitHistory[]
   fiscalYear: {
@@ -318,7 +349,7 @@ function InvoiceTable({
 export default function AdminProfitsPage() {
   const [yearMonth, setYearMonth] = useState(currentMonth)
   const [assignedUserId, setAssignedUserId] = useState("")
-  const [users, setUsers] = useState<{ id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "FIXED" | "TRIAL_20" }[]>([])
+  const [users, setUsers] = useState<{ id: string; name: string; commissionRate: number; commissionMode?: "STANDARD" | "FIXED" | "TRIAL_20"; targetGrossProfitShare?: number; targetCommissionAmount?: number }[]>([])
   const [payoutPreview, setPayoutPreview] = useState<any>(null)
   const [payoutPreviewLoading, setPayoutPreviewLoading] = useState(false)
   const [payoutSaving, setPayoutSaving] = useState(false)
@@ -619,6 +650,90 @@ export default function AdminProfitsPage() {
           />
         </div>
       </section>
+
+      {data?.targetPlan && (
+        <section className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/55 p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-[15px] font-semibold text-navy-900">会社年間目標・歩合シミュレーション</h2>
+              <p className="text-[12px] text-navy-400 mt-1">
+                設定の年間目標粗利と各担当者の目標歩合額から、必要粗利・想定歩合・会社に残る利益を試算しています。
+              </p>
+            </div>
+            <p className="text-[12px] text-navy-400">
+              {data.targetPlan.allocationMode === "EQUAL_SHARE" ? "配分率未設定のため均等割" : `配分率合計 ${pct(data.targetPlan.totalExplicitShare)}`}
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <SummaryCard
+              label="会社年間目標粗利"
+              value={yen(data.targetPlan.annualGrossProfitTarget)}
+              note="設定 > 自社情報で変更"
+              tone="green"
+              icon={<TrendingUp size={18} />}
+            />
+            <SummaryCard
+              label="割当済み目標粗利"
+              value={yen(data.targetPlan.totals.allocatedGrossProfitTarget)}
+              note="担当者ごとの配分率で按分"
+              tone="blue"
+              icon={<Wallet size={18} />}
+            />
+            <SummaryCard
+              label="目標歩合に必要な粗利"
+              value={yen(data.targetPlan.totals.requiredGrossProfit)}
+              note={`目標歩合 ${yen(data.targetPlan.totals.targetCommissionAmount)}`}
+              tone="amber"
+              icon={<Calculator size={18} />}
+            />
+            <SummaryCard
+              label="試算後に会社へ残る利益"
+              value={yen(data.targetPlan.totals.simulatedRetainedProfit)}
+              note="必要粗利 - 歩合 - 年間固定費 - 法人実効税額"
+              tone={data.targetPlan.totals.simulatedRetainedProfit >= 0 ? "green" : "amber"}
+              icon={<CheckCircle2 size={18} />}
+            />
+          </div>
+          <div className="card overflow-hidden">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>担当者</th>
+                  <th style={{ textAlign: "right" }}>配分率</th>
+                  <th style={{ textAlign: "right" }}>割当目標粗利</th>
+                  <th style={{ textAlign: "right" }}>目標歩合額</th>
+                  <th style={{ textAlign: "right" }}>必要粗利</th>
+                  <th style={{ textAlign: "right" }}>想定歩合率</th>
+                  <th style={{ textAlign: "right" }}>想定歩合</th>
+                  <th style={{ textAlign: "right" }}>年間固定費</th>
+                  <th style={{ textAlign: "right" }}>法人実効税額</th>
+                  <th style={{ textAlign: "right" }}>会社残利益</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.targetPlan.users.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="text-center text-navy-400 py-8">シミュレーション対象の担当者がいません。</td>
+                  </tr>
+                ) : data.targetPlan.users.map(row => (
+                  <tr key={row.userId}>
+                    <td className="primary">{row.userName}</td>
+                    <td className="amount">{pct(row.targetGrossProfitShare)}</td>
+                    <td className="amount text-blue-700">{yen(row.allocatedGrossProfitTarget)}</td>
+                    <td className="amount text-gold-700">{yen(row.targetCommissionAmount)}</td>
+                    <td className="amount text-navy-700">{yen(row.requiredGrossProfit)}</td>
+                    <td className="amount">{pct(row.simulatedCommissionRate)}</td>
+                    <td className="amount text-gold-700">{yen(row.simulatedCommissionAmount)}</td>
+                    <td className="amount text-red-700">{yen(row.annualFixedExpense)}</td>
+                    <td className="amount text-red-700">{yen(row.simulatedCorporateTax)}</td>
+                    <td className={`amount ${row.simulatedRetainedProfit >= 0 ? "text-emerald-700" : "text-red-700"}`}>{yen(row.simulatedRetainedProfit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/55 p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">

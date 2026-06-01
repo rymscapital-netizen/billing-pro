@@ -71,6 +71,7 @@ export default function SettingsPage() {
   const [contactName, setContactName] = useState("")
   const [officeRent,  setOfficeRent]  = useState(0)
   const [officeRentStartMonth, setOfficeRentStartMonth] = useState("")
+  const [annualGrossProfitTarget, setAnnualGrossProfitTarget] = useState(0)
   const [savingInfo, setSavingInfo] = useState(false)
   const [infoSaved,  setInfoSaved]  = useState(false)
 
@@ -147,6 +148,7 @@ export default function SettingsPage() {
       setContactName(d.contactName ?? "")
       setOfficeRent(Number(d.officeRent ?? 0))
       setOfficeRentStartMonth(d.officeRentStartDate ? String(d.officeRentStartDate).slice(0, 7) : "")
+      setAnnualGrossProfitTarget(Number(d.annualGrossProfitTarget ?? 0))
       setAdminCompanyId(d.id ?? "")
     })
     fetch("/api/companies").then(r => r.ok ? r.json() : []).then(setCompanies).catch(() => {})
@@ -191,6 +193,7 @@ export default function SettingsPage() {
         contactName,
         officeRent,
         officeRentStartDate: officeRentStartMonth ? `${officeRentStartMonth}-01` : null,
+        annualGrossProfitTarget,
       }),
     })
     setSavingInfo(false)
@@ -237,6 +240,16 @@ export default function SettingsPage() {
     setUsers(prev => prev.map(user => user.id === userId ? { ...user, [field]: amount } : user))
   }
 
+  const handleTargetGrossProfitShareChange = (userId: string, value: number) => {
+    const share = Number.isFinite(value) ? Math.min(Math.max(value, 0), 100) : 0
+    setUsers(prev => prev.map(user => user.id === userId ? { ...user, targetGrossProfitShare: share } : user))
+  }
+
+  const handleTargetCommissionAmountChange = (userId: string, value: number) => {
+    const amount = Number.isFinite(value) ? Math.max(value, 0) : 0
+    setUsers(prev => prev.map(user => user.id === userId ? { ...user, targetCommissionAmount: amount } : user))
+  }
+
   const handleSaveCommission = async (userId: string) => {
     const target = users.find(user => user.id === userId)
     if (!target) return
@@ -248,6 +261,8 @@ export default function SettingsPage() {
         userId,
         commissionRate: Number(target.commissionRate ?? 0),
         commissionMode: target.commissionMode ?? "STANDARD",
+        targetGrossProfitShare: Number(target.targetGrossProfitShare ?? 0),
+        targetCommissionAmount: Number(target.targetCommissionAmount ?? 0),
         employmentStartDate: target.employmentStartDate ? String(target.employmentStartDate).slice(0, 10) : null,
         ...Object.fromEntries(defaultExpenseFields.map(field => [field.key, Number(target[field.key] ?? 0)])),
       }),
@@ -372,6 +387,18 @@ export default function SettingsPage() {
               className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] text-right tabular-nums focus:outline-none focus:border-navy-400"
             />
             <p className="text-[11px] text-navy-400 mt-1">利益集計で、入社日以降の在籍スタッフに自動按分します。</p>
+          </div>
+          <div>
+            <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">会社年間目標粗利</label>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={annualGrossProfitTarget}
+              onChange={e => setAnnualGrossProfitTarget(Math.max(0, Number(e.target.value) || 0))}
+              className="w-full px-3 py-2 border border-navy-200 rounded-lg text-[13px] text-right tabular-nums focus:outline-none focus:border-navy-400"
+            />
+            <p className="text-[11px] text-navy-400 mt-1">担当者ごとの配分率に応じて、利益集計のシミュレーションに反映します。</p>
           </div>
           <div>
             <label className="block text-[11px] text-navy-400 uppercase tracking-wider mb-1">家賃開始月</label>
@@ -710,6 +737,41 @@ export default function SettingsPage() {
                           <div className="flex items-center justify-between gap-3 mb-2">
                             <p className="text-[11px] font-medium text-navy-500">標準月額経費</p>
                             <p className="text-[10.5px] text-navy-400">未作成の月次経費に自動反映</p>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 mb-3">
+                            <label className="block">
+                              <span className="block text-[10.5px] text-navy-400 mb-1">年間目標粗利の配分率</span>
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  step={0.1}
+                                  value={Number(u.targetGrossProfitShare ?? 0)}
+                                  onChange={e => handleTargetGrossProfitShareChange(u.id, Number(e.target.value))}
+                                  disabled={!canManageUsers}
+                                  className="w-full px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400 bg-white"
+                                />
+                                <span className="text-[11px] text-navy-400">%</span>
+                              </div>
+                              {annualGrossProfitTarget > 0 && (
+                                <span className="block text-[10.5px] text-navy-400 mt-1">
+                                  割当 {Math.round(annualGrossProfitTarget * Number(u.targetGrossProfitShare ?? 0) / 100).toLocaleString("ja-JP")}円
+                                </span>
+                              )}
+                            </label>
+                            <label className="block">
+                              <span className="block text-[10.5px] text-navy-400 mb-1">年間目標歩合額</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={1}
+                                value={Number(u.targetCommissionAmount ?? 0)}
+                                onChange={e => handleTargetCommissionAmountChange(u.id, Number(e.target.value))}
+                                disabled={!canManageUsers}
+                                className="w-full px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400 bg-white"
+                              />
+                            </label>
                           </div>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                             {defaultExpenseFields.map(field => (

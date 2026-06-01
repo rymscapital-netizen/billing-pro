@@ -11,6 +11,7 @@ const schema = z.object({
   contactName: z.string().optional(),
   officeRent:  z.number().min(0).max(99999999999999).optional(),
   officeRentStartDate: z.string().optional().nullable(),
+  annualGrossProfitTarget: z.number().min(0).max(99999999999999).optional(),
 })
 
 export async function GET() {
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = schema.parse(await req.json())
-    await prisma.company.updateMany({
+    await (prisma.company.updateMany as any)({
       where: { type: "ADMIN" },
       data: {
         name:        body.name,
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
         contactName: body.contactName,
         officeRent:  body.officeRent ?? 0,
         officeRentStartDate: body.officeRentStartDate ? new Date(body.officeRentStartDate) : null,
+        annualGrossProfitTarget: body.annualGrossProfitTarget ?? 0,
       },
     })
     return NextResponse.json({ ok: true })

@@ -1,0 +1,6 @@
+ALTER TABLE "Company"
+ADD COLUMN "annualGrossProfitTarget" DECIMAL(14,0) NOT NULL DEFAULT 0;
+
+ALTER TABLE "User"
+ADD COLUMN "targetGrossProfitShare" DECIMAL(5,2) NOT NULL DEFAULT 0,
+ADD COLUMN "targetCommissionAmount" DECIMAL(14,0) NOT NULL DEFAULT 0;

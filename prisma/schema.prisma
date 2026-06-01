@@ -23,6 +23,7 @@ model Company {
   bankAccountMemo     String?
   officeRent          Decimal     @default(0) @db.Decimal(14, 0)
   officeRentStartDate DateTime?
+  annualGrossProfitTarget Decimal @default(0) @db.Decimal(14, 0)
   type                CompanyType @default(CLIENT)
   isActive            Boolean     @default(true)
   createdByCompanyId  String?
@@ -50,6 +51,8 @@ model User {
   isActive     Boolean  @default(true)
   commissionRate Decimal @default(0) @db.Decimal(5, 2)
   commissionMode CommissionMode @default(STANDARD)
+  targetGrossProfitShare Decimal @default(0) @db.Decimal(5, 2)
+  targetCommissionAmount Decimal @default(0) @db.Decimal(14, 0)
   employmentStartDate DateTime?
   defaultBaseSalary Decimal @default(0) @db.Decimal(14, 0)
   defaultSocialInsurance Decimal @default(0) @db.Decimal(14, 0)

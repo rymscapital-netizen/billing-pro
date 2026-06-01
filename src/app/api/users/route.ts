@@ -13,6 +13,8 @@ const createSchema = z.object({
   companyId: z.string().min(1),
   commissionRate: z.number().min(0).max(100).optional(),
   commissionMode: z.enum(["STANDARD", "FIXED", "TRIAL_20"]).optional(),
+  targetGrossProfitShare: z.number().min(0).max(100).optional(),
+  targetCommissionAmount: z.number().min(0).optional(),
   employmentStartDate: z.string().optional().nullable(),
   defaultBaseSalary: z.number().min(0).optional(),
   defaultSocialInsurance: z.number().min(0).optional(),
@@ -28,6 +30,8 @@ const updateSchema = z.object({
   userId: z.string().min(1),
   commissionRate: z.number().min(0).max(100).optional(),
   commissionMode: z.enum(["STANDARD", "FIXED", "TRIAL_20"]).optional(),
+  targetGrossProfitShare: z.number().min(0).max(100).optional(),
+  targetCommissionAmount: z.number().min(0).optional(),
   employmentStartDate: z.string().optional().nullable(),
   defaultBaseSalary: z.number().min(0).optional(),
   defaultSocialInsurance: z.number().min(0).optional(),
@@ -40,7 +44,7 @@ const updateSchema = z.object({
   isActive: z.boolean().optional(),
 })
 
-const userSelect = "id, name, email, role, companyId, isActive, commissionRate, commissionMode, employmentStartDate, defaultBaseSalary, defaultSocialInsurance, defaultEmployeeSocialInsurance, defaultWithholdingTax, defaultTravelExpense, defaultCommunicationCost, defaultWelfareExpense, defaultSuppliesExpense, createdAt, updatedAt"
+const userSelect = "id, name, email, role, companyId, isActive, commissionRate, commissionMode, targetGrossProfitShare, targetCommissionAmount, employmentStartDate, defaultBaseSalary, defaultSocialInsurance, defaultEmployeeSocialInsurance, defaultWithholdingTax, defaultTravelExpense, defaultCommunicationCost, defaultWelfareExpense, defaultSuppliesExpense, createdAt, updatedAt"
 const userDisplayOrder = ["浪田", "西岡", "入内嶋", "髙橋", "高橋"]
 
 function getSb() {
@@ -130,6 +134,8 @@ export async function POST(req: NextRequest) {
       companyId:    body.companyId,
       commissionRate: role === "ADMIN" ? body.commissionRate ?? 0 : 0,
       commissionMode: role === "ADMIN" ? body.commissionMode ?? "STANDARD" : "STANDARD",
+      targetGrossProfitShare: role === "ADMIN" ? body.targetGrossProfitShare ?? 0 : 0,
+      targetCommissionAmount: role === "ADMIN" ? body.targetCommissionAmount ?? 0 : 0,
       employmentStartDate: role === "ADMIN" && body.employmentStartDate ? new Date(body.employmentStartDate) : null,
       defaultBaseSalary: role === "ADMIN" ? body.defaultBaseSalary ?? 0 : 0,
       defaultSocialInsurance: role === "ADMIN" ? body.defaultSocialInsurance ?? 0 : 0,
@@ -163,6 +169,8 @@ export async function PATCH(req: NextRequest) {
   const updates: Record<string, any> = { updatedAt: new Date().toISOString() }
   if (body.commissionRate !== undefined) updates.commissionRate = body.commissionRate
   if (body.commissionMode !== undefined) updates.commissionMode = body.commissionMode
+  if (body.targetGrossProfitShare !== undefined) updates.targetGrossProfitShare = body.targetGrossProfitShare
+  if (body.targetCommissionAmount !== undefined) updates.targetCommissionAmount = body.targetCommissionAmount
   if (body.employmentStartDate !== undefined) updates.employmentStartDate = body.employmentStartDate || null
   for (const field of [
     "defaultBaseSalary",
