@@ -178,6 +178,8 @@ type ProfitData = {
 }
 
 const yen = (value: number) => `¥${Math.round(Number(value ?? 0)).toLocaleString("ja-JP")}`
+const formatNumberInput = (value: number) => Math.round(Number(value ?? 0)).toLocaleString("ja-JP")
+const parseNumberInput = (value: string) => Number(value.replace(/[^\d.]/g, ""))
 const yenShort = (value: number) => {
   const number = Math.round(Number(value ?? 0))
   const sign = number < 0 ? "-" : ""
@@ -469,7 +471,7 @@ export default function AdminProfitsPage() {
     field: "targetGrossProfitShare" | "targetCommissionAmount",
     value: string
   ) => {
-    const amount = Math.max(0, Number(value) || 0)
+    const amount = Math.max(0, parseNumberInput(value) || 0)
     setTargetForm(prev => ({
       ...prev,
       users: {
@@ -828,10 +830,10 @@ export default function AdminProfitsPage() {
                     <td className="amount text-blue-700">{yen(row.allocatedGrossProfitTarget)}</td>
                     <td className="amount text-gold-700">
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="numeric"
                         min={0}
-                        step={1}
-                        value={Number(targetForm.users[row.userId]?.targetCommissionAmount ?? row.targetCommissionAmount ?? 0)}
+                        value={formatNumberInput(Number(targetForm.users[row.userId]?.targetCommissionAmount ?? row.targetCommissionAmount ?? 0))}
                         onChange={event => updateTargetField(row.userId, "targetCommissionAmount", event.target.value)}
                         className="w-[120px] px-2 py-1.5 border border-navy-200 rounded-md text-[12px] text-right tabular-nums focus:outline-none focus:border-navy-400 bg-white"
                       />
