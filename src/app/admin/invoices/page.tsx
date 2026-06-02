@@ -982,26 +982,31 @@ export default function AdminInvoicesPage() {
                     disabled={rcvProcessing || !editForm.vendorName || !editForm.subject || !editForm.amount}
                     onClick={async () => {
                       setRcvProcessing(true)
-                      const res = await fetch(`/api/received-invoices/${targetRcv.id}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          invoiceNumber: editForm.invoiceNumber || null,
-                          vendorName:    editForm.vendorName,
-                          subject:       editForm.subject,
-                          issueDate:     editForm.issueDate,
-                          dueDate:       editForm.dueDate,
-                          amount:        Number(editForm.amount),
-                          notes:         editForm.notes || null,
-                        }),
-                      })
-                      if (res.ok) {
-                        const updated = await res.json()
-                        setTargetRcv({ ...targetRcv, ...updated })
+                      try {
+                        const res = await fetch(`/api/received-invoices/${targetRcv.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            invoiceNumber: editForm.invoiceNumber || null,
+                            vendorName:    editForm.vendorName,
+                            subject:       editForm.subject,
+                            issueDate:     editForm.issueDate,
+                            dueDate:       editForm.dueDate,
+                            amount:        Number(editForm.amount),
+                            notes:         editForm.notes || null,
+                          }),
+                        })
+                        const body = await res.json().catch(() => ({}))
+                        if (!res.ok) throw new Error(body.error ?? "保存に失敗しました")
+                        setTargetRcv({ ...targetRcv, ...body })
                         setIsEditing(false)
+                        showToast("保存しました")
                         fetchRcvInvoices()
+                      } catch (e: any) {
+                        showToast(e?.message ?? "保存に失敗しました", false)
+                      } finally {
+                        setRcvProcessing(false)
                       }
-                      setRcvProcessing(false)
                     }}
                     className="px-4 py-2 text-[13px] bg-navy-800 text-white rounded-lg font-medium hover:bg-navy-700 disabled:opacity-60">
                     {rcvProcessing ? "保存中..." : "保存"}

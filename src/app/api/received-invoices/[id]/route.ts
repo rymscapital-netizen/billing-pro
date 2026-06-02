@@ -68,7 +68,7 @@ async function syncProfit(sb: ReturnType<typeof getSb>, invoiceId: string) {
 
 const patchSchema = z.object({
   invoiceId:     z.string().nullable().optional(),
-  invoiceNumber: z.string().optional(),
+  invoiceNumber: z.string().nullable().optional(),
   vendorName:    z.string().min(1).optional(),
   subject:       z.string().min(1).optional(),
   issueDate:     z.string().optional(),
@@ -99,7 +99,11 @@ export async function PATCH(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const prevInvoiceId = target[0].invoiceId ?? null
-  const body = patchSchema.parse(await req.json())
+  const parsed = patchSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid request", detail: parsed.error.flatten() }, { status: 400 })
+  }
+  const body = parsed.data
 
   const updates: Record<string, any> = { updatedAt: new Date().toISOString() }
   if (body.invoiceNumber !== undefined) updates.invoiceNumber = body.invoiceNumber
@@ -111,8 +115,10 @@ export async function PATCH(
   if (body.notes         !== undefined) updates.notes         = body.notes
   if ("invoiceId" in body)             updates.invoiceId      = body.invoiceId ?? null
 
-  const { data: updated } = await sb.from("ReceivedInvoice")
+  const { data: updated, error } = await sb.from("ReceivedInvoice")
     .update(updates).eq("id", id).select().limit(1)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!updated?.length) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const newInvoiceId = "invoiceId" in body ? (body.invoiceId ?? null) : prevInvoiceId
   if (prevInvoiceId && prevInvoiceId !== newInvoiceId) await syncProfit(sb, prevInvoiceId)
