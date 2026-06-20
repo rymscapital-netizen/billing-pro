@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useState, useEffect } from "react"
 import { Building2, UserPlus, Save, Eye, EyeOff, KeyRound } from "lucide-react"
 import { useSession } from "next-auth/react"
+import { sortUsersByDisplayOrder } from "@/lib/user-order"
 
 type DefaultExpenseKey =
   | "defaultBaseSalary"
@@ -34,22 +35,6 @@ const commissionTierRows = [
 ]
 
 const blankDefaultExpenses = () => Object.fromEntries(defaultExpenseFields.map(field => [field.key, 0])) as Record<DefaultExpenseKey, number>
-const userDisplayOrder = ["浪田", "西岡", "入内嶋", "髙橋", "高橋"]
-
-function userSortRank(name: string) {
-  const normalized = String(name ?? "")
-  const index = userDisplayOrder.findIndex(orderName => normalized.includes(orderName))
-  return index === -1 ? userDisplayOrder.length : index
-}
-
-function sortUsers(users: any[]) {
-  return [...users].sort((a, b) => {
-    const rankDiff = userSortRank(a.name) - userSortRank(b.name)
-    if (rankDiff !== 0) return rankDiff
-    return String(a.name ?? "").localeCompare(String(b.name ?? ""), "ja")
-  })
-}
-
 export default function SettingsPage() {
   const { data: session, update: updateSession } = useSession()
   const canManageUsers = String((session?.user as any)?.name ?? "").includes("浪田")
@@ -102,7 +87,7 @@ export default function SettingsPage() {
   const [users,        setUsers]        = useState<any[]>([])
   const [commissionSavingId, setCommissionSavingId] = useState("")
   const [commissionSavedId,  setCommissionSavedId]  = useState("")
-  const visibleUsers = useMemo(() => sortUsers(users), [users])
+  const visibleUsers = useMemo(() => sortUsersByDisplayOrder(users), [users])
 
   // セッションからアカウント情報を初期化
   useEffect(() => {
@@ -172,7 +157,7 @@ export default function SettingsPage() {
     })
     if (res.ok) {
       const newUser = await res.json()
-      setUsers(prev => sortUsers([newUser, ...prev]))
+      setUsers(prev => sortUsersByDisplayOrder([newUser, ...prev]))
       setStaffName(""); setStaffEmail(""); setStaffPassword(""); setStaffCommissionRate(0); setStaffCommissionMode("STANDARD"); setStaffEmploymentStartDate(""); setStaffDefaultExpenses(blankDefaultExpenses())
       setStaffAdded(true)
       setTimeout(() => setStaffAdded(false), 3000)
@@ -214,7 +199,7 @@ export default function SettingsPage() {
     })
     if (res.ok) {
       const newUser = await res.json()
-      setUsers(prev => sortUsers([newUser, ...prev]))
+      setUsers(prev => sortUsersByDisplayOrder([newUser, ...prev]))
       setUserName(""); setUserEmail(""); setUserPassword(""); setUserCompany("")
       setUserAdded(true)
       setTimeout(() => setUserAdded(false), 3000)
@@ -269,7 +254,7 @@ export default function SettingsPage() {
     })
     if (res.ok) {
       const updated = await res.json()
-      setUsers(prev => sortUsers(prev.map(user => user.id === userId ? { ...user, ...updated } : user)))
+      setUsers(prev => sortUsersByDisplayOrder(prev.map(user => user.id === userId ? { ...user, ...updated } : user)))
       setCommissionSavedId(userId)
       setTimeout(() => setCommissionSavedId(""), 2500)
     }
@@ -652,7 +637,7 @@ export default function SettingsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortUsers(members as any[]).map((u: any) => (
+                  {sortUsersByDisplayOrder(members as any[]).map((u: any) => (
                     <Fragment key={u.id}>
                     <tr className="border-b border-navy-100 hover:bg-navy-50">
                       <td className="px-4 py-3 font-medium text-navy-900">{u.name}</td>

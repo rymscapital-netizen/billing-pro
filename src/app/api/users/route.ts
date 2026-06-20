@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
+import { sortUsersByDisplayOrder } from "@/lib/user-order"
 
 const createSchema = z.object({
   name:      z.string().min(1),
@@ -45,7 +46,6 @@ const updateSchema = z.object({
 })
 
 const userSelect = "id, name, email, role, companyId, isActive, commissionRate, commissionMode, targetGrossProfitShare, targetCommissionAmount, employmentStartDate, defaultBaseSalary, defaultSocialInsurance, defaultEmployeeSocialInsurance, defaultWithholdingTax, defaultTravelExpense, defaultCommunicationCost, defaultWelfareExpense, defaultSuppliesExpense, createdAt, updatedAt"
-const userDisplayOrder = ["浪田", "西岡", "入内嶋", "髙橋", "高橋"]
 
 function getSb() {
   return createClient(
@@ -56,20 +56,6 @@ function getSb() {
 
 function canViewAllUsers(user: any) {
   return String(user?.name ?? "").includes("浪田")
-}
-
-function userSortRank(name: string) {
-  const normalized = String(name ?? "")
-  const index = userDisplayOrder.findIndex(orderName => normalized.includes(orderName))
-  return index === -1 ? userDisplayOrder.length : index
-}
-
-function sortUsers(users: any[]) {
-  return [...users].sort((a, b) => {
-    const rankDiff = userSortRank(a.name) - userSortRank(b.name)
-    if (rankDiff !== 0) return rankDiff
-    return String(a.name ?? "").localeCompare(String(b.name ?? ""), "ja")
-  })
 }
 
 export async function GET() {
@@ -95,7 +81,7 @@ export async function GET() {
     if (companyError) throw new Error(companyError.message)
 
     const company = companies?.[0] ?? null
-    return NextResponse.json(sortUsers(users ?? []).map(user => ({ ...user, company })))
+    return NextResponse.json(sortUsersByDisplayOrder(users ?? []).map(user => ({ ...user, company })))
   } catch (e) {
     console.error("[users GET]", e)
     return NextResponse.json([], { status: 200 })

@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth"
 import { COMMISSION_TIERS, calculateProjectGrossProfit, resolveCommissionRate, type CommissionMode } from "@/lib/commission"
 import { canViewInternalReports } from "@/lib/internal-access"
+import { sortUsersByDisplayOrder, userSortRank } from "@/lib/user-order"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 
@@ -442,9 +443,15 @@ function applyExpensesToGroups(groups: any[], expensesByUserId: Map<string, any>
   })
 }
 
+function compareGroupsByUserOrder(a: any, b: any) {
+  const rankDiff = userSortRank(a.userName) - userSortRank(b.userName)
+  if (rankDiff !== 0) return rankDiff
+  return String(a.userName ?? "").localeCompare(String(b.userName ?? ""), "ja")
+}
+
 function addExpenseOnlyGroups(groups: any[], users: any[], expensesByUserId: Map<string, any>) {
   const existingUserIds = new Set(groups.map(group => group.userId))
-  const additionalGroups = users
+  const additionalGroups = sortUsersByDisplayOrder(users)
     .filter(user => expensesByUserId.has(user.id) && !existingUserIds.has(user.id))
     .map(user => {
       const expense = applyCorporateEffectiveTax(expensesByUserId.get(user.id), 0)
@@ -472,7 +479,7 @@ function addExpenseOnlyGroups(groups: any[], users: any[], expensesByUserId: Map
       }
     })
 
-  return [...groups, ...additionalGroups].sort((a, b) => b.retainedProfit - a.retainedProfit)
+  return [...groups, ...additionalGroups].sort(compareGroupsByUserOrder)
 }
 
 function sortGroups(groups: Map<string, any>, expensesByUserId = new Map<string, any>()) {
@@ -483,7 +490,7 @@ function sortGroups(groups: Map<string, any>, expensesByUserId = new Map<string,
       items: group.items.sort((a: any, b: any) => String(b.paymentDate).localeCompare(String(a.paymentDate))),
     }))
     .map(group => applyExpensesToGroups([group], expensesByUserId)[0])
-    .sort((a, b) => b.grossProfit - a.grossProfit)
+    .sort(compareGroupsByUserOrder)
 }
 
 function groupDueInvoices(
@@ -986,8 +993,8 @@ export async function GET(req: NextRequest) {
     if (companySettingsError) throw new Error(companySettingsError.message)
     if (receivedTaxError) throw new Error(receivedTaxError.message)
 
-    const users = userRows ?? []
-    const rentUsers = rentUserRows ?? users
+    const users = sortUsersByDisplayOrder(userRows ?? [])
+    const rentUsers = sortUsersByDisplayOrder(rentUserRows ?? users)
     const officeRent = toNumber(companySettings?.officeRent)
     const officeRentStartDate = companySettings?.officeRentStartDate ?? null
     const annualGrossProfitTarget = toNumber(companySettings?.annualGrossProfitTarget)
@@ -1024,7 +1031,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       month: yearMonth,
-      users: userRows ?? [],
+      users,
       canViewAllUsers,
       totals,
       groups,
