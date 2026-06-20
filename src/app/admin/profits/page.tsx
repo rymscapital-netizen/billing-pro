@@ -28,6 +28,7 @@ type ProfitItem = {
   grossProfit: number
   commissionRate: number
   commissionAmount: number
+  corporateTax?: number
   amount: number
   status: string
   hasProfit: boolean
@@ -98,6 +99,7 @@ type ProfitHistory = {
   cost: number
   grossProfit: number
   commissionAmount: number
+  corporateTax: number
   totalExpense: number
   retainedProfit: number
   amount: number
@@ -113,6 +115,7 @@ type ProfitTotals = {
   cost: number
   grossProfit: number
   commissionAmount: number
+  corporateTax: number
   totalExpense: number
   retainedProfit: number
   amount: number
@@ -129,6 +132,7 @@ type FiscalSummary = {
   sales: number
   cost: number
   grossProfit: number
+  corporateTax: number
   totalExpense: number
   retainedProfit: number
   commissionAmount: number
@@ -228,7 +232,6 @@ const expenseFields: { key: keyof UserExpense; label: string }[] = [
   { key: "rentAllocation", label: "家賃按分" },
   { key: "paidCommission", label: "支払歩合" },
   { key: "travelExpense", label: "交通費等" },
-  { key: "corporateTax", label: "法人実効税額（30.64%）" },
   { key: "communicationCost", label: "通信費" },
   { key: "welfareExpense", label: "福利厚生" },
   { key: "suppliesExpense", label: "備品・消耗品" },
@@ -240,6 +243,8 @@ const referenceDeductionFields: { key: keyof UserExpense; label: string }[] = [
 ]
 const expenseTotal = (expense: UserExpense) => expenseFields.reduce((sum, field) => sum + Number(expense[field.key] ?? 0), 0)
 const deductionTotal = (expense: UserExpense) => referenceDeductionFields.reduce((sum, field) => sum + Number(expense[field.key] ?? 0), 0)
+const taxTotal = (expense?: Partial<UserExpense> | null) => Number(expense?.corporateTax ?? 0)
+const expenseWithoutTax = (totalExpense: number, corporateTax?: number) => Math.max(Number(totalExpense ?? 0) - Number(corporateTax ?? 0), 0)
 const date = (value: string) => {
   const datePart = value?.slice(0, 10)
   if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
@@ -645,9 +650,10 @@ export default function AdminProfitsPage() {
     sales: row.sales,
     grossProfit: row.grossProfit,
     commission: row.commissionAmount,
+    corporateTax: row.corporateTax,
     retainedProfit: row.retainedProfit,
   })), [data])
-  const hasHistory = chartData.some(row => row.sales !== 0 || row.grossProfit !== 0 || row.commission !== 0 || row.retainedProfit !== 0)
+  const hasHistory = chartData.some(row => row.sales !== 0 || row.grossProfit !== 0 || row.commission !== 0 || row.corporateTax !== 0 || row.retainedProfit !== 0)
   const officeRentStartMonth = data?.officeRentStartDate ? String(data.officeRentStartDate).slice(0, 7) : ""
   const hasAutomaticOfficeRent = (data?.officeRent ?? 0) > 0
   const targetSummary = useMemo(() => {
@@ -728,7 +734,7 @@ export default function AdminProfitsPage() {
             {assignedUserId ? "選択中の担当者のみ" : "全担当者"}
           </p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <SummaryCard
             label="累計売上"
             value={data ? yen(data.fiscalSummary.sales) : "..."}
@@ -745,15 +751,22 @@ export default function AdminProfitsPage() {
           />
           <SummaryCard
             label="累計経費"
-            value={data ? yen(data.fiscalSummary.totalExpense) : "..."}
+            value={data ? yen(expenseWithoutTax(data.fiscalSummary.totalExpense, data.fiscalSummary.corporateTax)) : "..."}
             note="人件費・家賃按分・月次経費"
             tone="amber"
             icon={<Calculator size={18} />}
           />
           <SummaryCard
+            label="税金"
+            value={data ? yen(data.fiscalSummary.corporateTax) : "..."}
+            note="法人実効税額（30.64%）"
+            tone="navy"
+            icon={<Calculator size={18} />}
+          />
+          <SummaryCard
             label="現時点利益"
             value={data ? yen(data.fiscalSummary.retainedProfit) : "..."}
-            note="粗利 - 経費"
+            note="粗利 - 経費 - 税金"
             tone={data && data.fiscalSummary.retainedProfit >= 0 ? "green" : "amber"}
             icon={<TrendingUp size={18} />}
           />
@@ -1012,7 +1025,7 @@ export default function AdminProfitsPage() {
           <SummaryCard
             label="会社に残る利益"
             value={data ? yen(data.totals.retainedProfit) : "..."}
-            note={data ? `月次経費 ${yen(data.totals.totalExpense)}` : undefined}
+            note={data ? `月次経費 ${yen(expenseWithoutTax(data.totals.totalExpense, data.totals.corporateTax))} / 税金 ${yen(data.totals.corporateTax)}` : undefined}
             tone={data && data.totals.retainedProfit >= 0 ? "green" : "amber"}
             icon={<TrendingUp size={18} />}
           />
@@ -1079,6 +1092,7 @@ export default function AdminProfitsPage() {
                 <th style={{ textAlign: "right" }}>歩合率</th>
                 <th style={{ textAlign: "right" }}>概算歩合</th>
                 <th style={{ textAlign: "right" }}>月次経費</th>
+                <th style={{ textAlign: "right" }}>税金</th>
                 <th style={{ textAlign: "right" }}>月次必要粗利</th>
                 <th style={{ textAlign: "right" }}>年間目標</th>
                 <th style={{ textAlign: "right" }}>会社に残る利益</th>
@@ -1088,11 +1102,11 @@ export default function AdminProfitsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="text-center text-navy-400 py-8">読み込み中...</td>
+                  <td colSpan={13} className="text-center text-navy-400 py-8">読み込み中...</td>
                 </tr>
               ) : groups.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="text-center text-navy-400 py-8">この月の利益データはありません。</td>
+                  <td colSpan={13} className="text-center text-navy-400 py-8">この月の利益データはありません。</td>
                 </tr>
               ) : groups.map(group => (
                 <tr key={group.userId}>
@@ -1108,7 +1122,8 @@ export default function AdminProfitsPage() {
                   <td className="amount">{pct(group.profitRate)}</td>
                   <td className="amount">{pct(group.commissionRate)}</td>
                   <td className="amount text-gold-700">{yen(group.commissionAmount)}</td>
-                  <td className="amount text-red-700">{yen(group.totalExpense)}</td>
+                  <td className="amount text-red-700">{yen(expenseWithoutTax(group.totalExpense, group.expenses?.corporateTax))}</td>
+                  <td className="amount text-red-700">{yen(taxTotal(group.expenses))}</td>
                   <td className="amount text-blue-700">{yen(group.monthlyGrossProfitTarget)}</td>
                   <td className="amount text-navy-700">{yen(group.annualGrossProfitTarget)}</td>
                   <td className={`amount ${group.retainedProfit >= 0 ? "text-emerald-700" : "text-red-700"}`}>{yen(group.retainedProfit)}</td>
@@ -1119,7 +1134,7 @@ export default function AdminProfitsPage() {
           </table>
         </div>
         <p className="text-[12px] text-navy-400">
-          月次必要粗利は、支払歩合を含む固定費を「1 - 歩合率 - 法人実効税率30.64%」で割って算出しています。年間目標は月次必要粗利の12か月換算です。
+          月次経費には法人実効税額を含めず、税金列で別表示しています。月次必要粗利は、支払歩合を含む固定費を「1 - 歩合率 - 法人実効税率30.64%」で割って算出しています。
         </p>
       </section>
 
@@ -1251,7 +1266,7 @@ export default function AdminProfitsPage() {
           <div>
             <h2 className="text-[15px] font-semibold text-navy-900">月次経費</h2>
             <p className="text-[12px] text-navy-400 mt-1">
-              担当者ごとに、その月の人件費・共通費・税額を保存できます。
+              担当者ごとに、その月の人件費・共通費を保存できます。税金は粗利から自動計算し、別枠で表示します。
             </p>
           </div>
           <p className="text-[12px] text-navy-400">
@@ -1272,7 +1287,7 @@ export default function AdminProfitsPage() {
                   <div>
                     <p className="text-[14px] font-semibold text-navy-900">{user.name}</p>
                     <p className="text-[12px] text-navy-400">
-                      会社コスト {yen(expenseTotal(form))} / 本人控除メモ {yen(deductionTotal(form))}
+                      月次経費 {yen(expenseTotal(form))} / 税金 {yen(taxTotal(form))} / 本人控除メモ {yen(deductionTotal(form))}
                     </p>
                   </div>
                   <button
@@ -1285,6 +1300,13 @@ export default function AdminProfitsPage() {
                     {savingExpenseId === user.id ? "保存中..." : "保存"}
                   </button>
                 </div>
+                <div className="rounded-lg border border-gold-100 bg-gold-50 px-4 py-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-medium text-gold-700">税金（経費とは別枠）</p>
+                    <p className="text-[11px] text-navy-400 mt-1">法人実効税額は粗利から自動計算し、会社に残る利益から控除します。</p>
+                  </div>
+                  <p className="text-[15px] font-semibold text-red-700 tabular-nums">{yen(taxTotal(form))}</p>
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   {expenseFields.map(field => (
                     <label key={field.key} className="block">
@@ -1296,18 +1318,14 @@ export default function AdminProfitsPage() {
                         value={Number(form[field.key] ?? 0)}
                         onChange={event => updateExpenseField(user.id, field.key, event.target.value)}
                         readOnly={
-                          field.key === "corporateTax" ||
                           (field.key === "rentAllocation" && hasAutomaticOfficeRent)
                         }
                         className={`form-input text-right tabular-nums ${
-                          field.key === "corporateTax" || (field.key === "rentAllocation" && hasAutomaticOfficeRent)
+                          field.key === "rentAllocation" && hasAutomaticOfficeRent
                             ? "bg-navy-50 text-navy-500"
                             : ""
                         }`}
                       />
-                      {field.key === "corporateTax" && (
-                        <span className="block text-[10.5px] text-navy-400 mt-1">粗利から自動計算</span>
-                      )}
                       {field.key === "rentAllocation" && hasAutomaticOfficeRent && (
                         <span className="block text-[10.5px] text-navy-400 mt-1">自動按分</span>
                       )}
