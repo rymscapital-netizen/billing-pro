@@ -369,6 +369,65 @@ function addInvoiceToGroupsByAssignments(
   }
 }
 
+function addManualProfitToGroups(
+  groups: Map<string, any>,
+  row: any,
+  options: { visibleUserId?: string | null }
+) {
+  const user = Array.isArray(row.user) ? row.user[0] : row.user
+  const userId = row.userId ?? user?.id
+  if (!userId || (options.visibleUserId && userId !== options.visibleUserId)) return
+
+  const userName = user?.name ?? "未設定"
+  const commissionMode = user?.commissionMode ?? "STANDARD"
+  const commissionRate = commissionMode === "TRIAL_20" ? 20 : toNumber(user?.commissionRate)
+  const amount = toNumber(row.amount)
+  const commissionAmount = amount * (commissionRate / 100)
+  const current = groups.get(userId) ?? {
+    userId,
+    userName,
+    commissionRate,
+    sales: 0,
+    cost: 0,
+    grossProfit: 0,
+    commissionAmount: 0,
+    amount: 0,
+    confirmedAmount: 0,
+    unconfirmedAmount: 0,
+    invoiceCount: 0,
+    missingProfitCount: 0,
+    manualProfitCount: 0,
+    items: [],
+  }
+
+  current.sales += amount
+  current.grossProfit += amount
+  current.commissionAmount += commissionAmount
+  current.amount += amount
+  current.confirmedAmount += amount
+  current.manualProfitCount += 1
+  current.items.push({
+    id: row.id,
+    invoiceNumber: "請求書なし",
+    companyName: "手入力利益",
+    subject: row.memo ? `${row.title} / ${row.memo}` : row.title,
+    issueDate: row.profitDate,
+    dueDate: row.profitDate,
+    paymentDate: row.profitDate,
+    sales: amount,
+    cost: 0,
+    grossProfit: amount,
+    commissionRate,
+    commissionAmount,
+    amount,
+    status: "MANUAL_PROFIT",
+    hasProfit: true,
+    isManualProfit: true,
+  })
+
+  groups.set(userId, current)
+}
+
 function applyExpensesToGroups(groups: any[], expensesByUserId: Map<string, any>) {
   return groups.map(group => {
     const expense = applyCorporateEffectiveTax(expensesByUserId.get(group.userId), group.grossProfit)
@@ -403,6 +462,7 @@ function addExpenseOnlyGroups(groups: any[], users: any[], expensesByUserId: Map
         unconfirmedAmount: 0,
         invoiceCount: 0,
         missingProfitCount: 0,
+        manualProfitCount: 0,
         profitRate: 0,
         items: [],
         expenses: expense,
@@ -428,6 +488,7 @@ function sortGroups(groups: Map<string, any>, expensesByUserId = new Map<string,
 
 function groupDueInvoices(
   rows: any[],
+  manualRows: any[] = [],
   expensesByUserId = new Map<string, any>(),
   users: any[] = [],
   visibleUserId: string | null = null
@@ -447,6 +508,10 @@ function groupDueInvoices(
       confirmedAmount,
       visibleUserId,
     })
+  }
+
+  for (const row of manualRows) {
+    addManualProfitToGroups(groups, row, { visibleUserId })
   }
 
   return addExpenseOnlyGroups(sortGroups(groups, expensesByUserId), users, expensesByUserId)
@@ -525,7 +590,7 @@ function buildHistory(rows: any[], monthStarts: Date[], expenses: any[], users: 
   return monthStarts.map(monthStart => {
     const key = formatYearMonth(monthStart)
     const expensesByUserId = new Map<string, any>((expensesByMonth.get(key) ?? []).map(expense => [expense.userId, expense]))
-    const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? [], expensesByUserId, users))
+    const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? [], [], expensesByUserId, users))
 
     return {
       month: key,
@@ -548,6 +613,7 @@ function buildHistory(rows: any[], monthStarts: Date[], expenses: any[], users: 
 
 function buildHistoryWithRent(
   rows: any[],
+  manualRows: any[],
   monthStarts: Date[],
   expenses: any[],
   users: any[],
@@ -556,6 +622,7 @@ function buildHistoryWithRent(
   visibleUserId: string | null
 ) {
   const rowsByMonth = new Map<string, any[]>()
+  const manualRowsByMonth = new Map<string, any[]>()
   const expensesByMonth = new Map<string, any[]>()
 
   for (const row of rows) {
@@ -564,6 +631,13 @@ function buildHistoryWithRent(
     const current = rowsByMonth.get(key) ?? []
     current.push(row)
     rowsByMonth.set(key, current)
+  }
+
+  for (const row of manualRows) {
+    const key = row.yearMonth ?? formatJstYearMonth(row.profitDate)
+    const current = manualRowsByMonth.get(key) ?? []
+    current.push(row)
+    manualRowsByMonth.set(key, current)
   }
 
   for (const expense of expenses) {
@@ -577,7 +651,7 @@ function buildHistoryWithRent(
     const monthExpenses = applyOfficeRentToExpenses(expensesByMonth.get(key) ?? [], users, key, officeRent, officeRentStartDate)
       .filter((expense: any) => !visibleUserId || expense.userId === visibleUserId)
     const expensesByUserId = new Map<string, any>(monthExpenses.map((expense: any) => [expense.userId, expense]))
-    const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? [], expensesByUserId, users, visibleUserId))
+    const totals = buildTotals(groupDueInvoices(rowsByMonth.get(key) ?? [], manualRowsByMonth.get(key) ?? [], expensesByUserId, users, visibleUserId))
 
     return {
       month: key,
@@ -607,6 +681,7 @@ function calculateIncludedTax(totalAmount: unknown) {
 function buildFiscalSummary(params: {
   rows: any[]
   receivedRows: any[]
+  manualRows: any[]
   expenses: any[]
   users: any[]
   officeRent: number
@@ -621,9 +696,11 @@ function buildFiscalSummary(params: {
   const monthKeySet = new Set(monthKeys)
   const rows = params.rows.filter(row => monthKeySet.has(formatJstYearMonth(row.dueDate)))
   const receivedRows = params.receivedRows.filter(row => monthKeySet.has(formatJstYearMonth(row.dueDate)))
+  const manualRows = params.manualRows.filter(row => monthKeySet.has(row.yearMonth ?? formatJstYearMonth(row.profitDate)))
   const expenses = params.expenses.filter(expense => monthKeySet.has(expense.yearMonth))
   const monthly = buildHistoryWithRent(
     rows,
+    manualRows,
     params.monthStarts.filter(month => monthKeys.includes(formatYearMonth(month))),
     expenses,
     params.users,
@@ -846,9 +923,23 @@ export async function GET(req: NextRequest) {
       .eq("companyId", session.user.companyId)
       .in("yearMonth", fiscalMonthKeys)
 
+    let manualProfitQuery: any = sb.from("ManualProfit")
+      .select("*, user:User!userId(id, name, commissionRate, commissionMode, employmentStartDate)")
+      .eq("companyId", session.user.companyId)
+      .eq("yearMonth", yearMonth)
+      .order("profitDate", { ascending: false })
+
+    let historyManualProfitQuery: any = sb.from("ManualProfit")
+      .select("*, user:User!userId(id, name, commissionRate, commissionMode, employmentStartDate)")
+      .eq("companyId", session.user.companyId)
+      .in("yearMonth", fiscalMonthKeys)
+      .order("profitDate", { ascending: false })
+
     if (effectiveAssignedUserId) {
       expensesQuery = expensesQuery.eq("userId", effectiveAssignedUserId)
       historyExpensesQuery = historyExpensesQuery.eq("userId", effectiveAssignedUserId)
+      manualProfitQuery = manualProfitQuery.eq("userId", effectiveAssignedUserId)
+      historyManualProfitQuery = historyManualProfitQuery.eq("userId", effectiveAssignedUserId)
     }
 
     let receivedTaxQuery: any = sb.from("ReceivedInvoice")
@@ -868,6 +959,8 @@ export async function GET(req: NextRequest) {
       { data: rentUserRows, error: rentUserError },
       { data: expenses, error: expensesError },
       { data: historyExpenses, error: historyExpensesError },
+      { data: manualProfits, error: manualProfitsError },
+      { data: historyManualProfits, error: historyManualProfitsError },
       { data: companySettings, error: companySettingsError },
       { data: receivedTaxRows, error: receivedTaxError },
     ] = await Promise.all([
@@ -877,6 +970,8 @@ export async function GET(req: NextRequest) {
       rentUsersQuery,
       expensesQuery,
       historyExpensesQuery,
+      manualProfitQuery,
+      historyManualProfitQuery,
       sb.from("Company").select("officeRent, officeRentStartDate, annualGrossProfitTarget").eq("id", session.user.companyId).maybeSingle(),
       receivedTaxQuery,
     ])
@@ -886,6 +981,8 @@ export async function GET(req: NextRequest) {
     if (rentUserError) throw new Error(rentUserError.message)
     if (expensesError) throw new Error(expensesError.message)
     if (historyExpensesError) throw new Error(historyExpensesError.message)
+    if (manualProfitsError) throw new Error(manualProfitsError.message)
+    if (historyManualProfitsError) throw new Error(historyManualProfitsError.message)
     if (companySettingsError) throw new Error(companySettingsError.message)
     if (receivedTaxError) throw new Error(receivedTaxError.message)
 
@@ -908,13 +1005,14 @@ export async function GET(req: NextRequest) {
       expensesByUserId: targetPlanExpenses,
       annualGrossProfitTarget,
     })
-    const groups = groupDueInvoices(data ?? [], expensesByUserId, users, effectiveAssignedUserId)
+    const groups = groupDueInvoices(data ?? [], manualProfits ?? [], expensesByUserId, users, effectiveAssignedUserId)
     const totals = buildTotals(groups)
     const groupExpenses = groups.map(group => group.expenses).filter(Boolean)
-    const history = buildHistoryWithRent(historyRows ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, officeRentStartDate, effectiveAssignedUserId)
+    const history = buildHistoryWithRent(historyRows ?? [], historyManualProfits ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, officeRentStartDate, effectiveAssignedUserId)
     const fiscalSummary = buildFiscalSummary({
       rows: historyRows ?? [],
       receivedRows: receivedTaxRows ?? [],
+      manualRows: historyManualProfits ?? [],
       expenses: historyExpenses ?? [],
       users: rentUsers,
       officeRent,
@@ -936,6 +1034,7 @@ export async function GET(req: NextRequest) {
       annualGrossProfitTarget,
       effectiveOfficeRent,
       targetPlan,
+      manualProfits: manualProfits ?? [],
       fiscalYear: {
         startMonth: formatYearMonth(fiscalMonths[0]),
         endMonth: formatYearMonth(fiscalMonths[11]),

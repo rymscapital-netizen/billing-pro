@@ -66,6 +66,14 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     .in("status", ["PAYMENT_CONFIRMED", "CLEARED"])
   if (invoiceError) throw new Error(invoiceError.message)
 
+  const { data: manualProfits, error: manualProfitError } = await sb.from("ManualProfit")
+    .select("id, amount, profitDate, yearMonth")
+    .eq("companyId", companyId)
+    .eq("userId", userId)
+    .gte("profitDate", fiscal.start)
+    .lt("profitDate", month.endExclusive)
+  if (manualProfitError) throw new Error(manualProfitError.message)
+
   const invoiceIds = (invoices ?? []).map((invoice: any) => invoice.id)
   const { data: receivedRows, error: receivedError } = invoiceIds.length > 0
     ? await sb.from("ReceivedInvoice").select("*").in("invoiceId", invoiceIds)
@@ -111,6 +119,21 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
       paymentDate: payment.paymentDate,
       dueDate: invoice.dueDate,
       shareRate: assignment.shareRate,
+      grossProfit,
+    })
+  }
+
+  for (const row of manualProfits ?? []) {
+    const grossProfit = toNumber(row.amount)
+    cumulativeGrossProfit += grossProfit
+    if (row.profitDate >= month.start && row.profitDate < month.endExclusive) {
+      monthGrossProfit += grossProfit
+    }
+    items.push({
+      manualProfitId: row.id,
+      paymentDate: row.profitDate,
+      dueDate: row.profitDate,
+      shareRate: 100,
       grossProfit,
     })
   }

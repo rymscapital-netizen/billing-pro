@@ -71,6 +71,7 @@ model User {
   invoiceAssignments   InvoiceAssignment[]
   assignedRcvInvoices  ReceivedInvoice[] @relation("ReceivedInvoiceAssignedUser")
   monthlyExpenses      UserMonthlyExpense[]
+  manualProfits        ManualProfit[]
 }
 
 enum UserRole {
@@ -224,6 +225,25 @@ model UserMonthlyExpense {
 
   @@unique([userId, yearMonth])
   @@index([companyId, yearMonth])
+}
+
+model ManualProfit {
+  id              String   @id @default(cuid())
+  companyId       String
+  userId          String
+  yearMonth       String
+  profitDate      DateTime
+  title           String
+  amount          Decimal  @db.Decimal(14, 0)
+  memo            String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([companyId, yearMonth])
+  @@index([userId, yearMonth])
 }
 
 model InvoicePayment {

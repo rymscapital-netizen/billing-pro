@@ -3,7 +3,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
-import { Calculator, CheckCircle2, RefreshCw, Save, TrendingUp, Wallet } from "lucide-react"
+import { Calculator, CheckCircle2, Plus, RefreshCw, Save, Trash2, TrendingUp, Wallet } from "lucide-react"
 
 const Bar = dynamic(() => import("recharts").then(m => m.Bar), { ssr: false })
 const CartesianGrid = dynamic(() => import("recharts").then(m => m.CartesianGrid), { ssr: false })
@@ -31,6 +31,18 @@ type ProfitItem = {
   amount: number
   status: string
   hasProfit: boolean
+  isManualProfit?: boolean
+}
+
+type ManualProfit = {
+  id: string
+  userId: string
+  yearMonth: string
+  profitDate: string
+  title: string
+  amount: number
+  memo?: string | null
+  user?: { id: string; name: string } | null
 }
 
 type UserExpense = {
@@ -169,6 +181,7 @@ type ProfitData = {
   annualGrossProfitTarget?: number
   effectiveOfficeRent?: number
   targetPlan?: TargetPlan
+  manualProfits?: ManualProfit[]
   fiscalSummary: FiscalSummary
   history: ProfitHistory[]
   fiscalYear: {
@@ -208,6 +221,7 @@ const blankExpense = (userId: string, yearMonth: string): UserExpense => ({
   otherMemo: "",
   totalExpense: 0,
 })
+const monthStartDate = (yearMonth: string) => `${yearMonth}-01`
 const expenseFields: { key: keyof UserExpense; label: string }[] = [
   { key: "baseSalary", label: "基本給" },
   { key: "socialInsurance", label: "社保（会社負担）" },
@@ -275,6 +289,7 @@ function SummaryCard({
 }
 
 function StatusPill({ status }: { status: string }) {
+  if (status === "MANUAL_PROFIT") return <span className="badge badge-blue">手入力</span>
   if (status === "CLEARED") return <span className="badge badge-green">消込済み</span>
   if (status === "PAYMENT_CONFIRMED") return <span className="badge badge-blue">着金確認済み</span>
   if (status === "OVERDUE") return <span className="badge badge-red">期限超過</span>
@@ -326,9 +341,13 @@ function InvoiceTable({
                 <tr key={item.id}>
                   <td className="tabular-nums whitespace-nowrap">{item.paymentDate ? date(item.paymentDate) : "-"}</td>
                   <td>
-                    <Link href={`/admin/invoices/${item.id}`} className="font-mono text-[11px] text-blue-700 hover:underline">
-                      {item.invoiceNumber}
-                    </Link>
+                    {item.isManualProfit ? (
+                      <span className="font-mono text-[11px] text-navy-500">{item.invoiceNumber}</span>
+                    ) : (
+                      <Link href={`/admin/invoices/${item.id}`} className="font-mono text-[11px] text-blue-700 hover:underline">
+                        {item.invoiceNumber}
+                      </Link>
+                    )}
                   </td>
                   <td className="font-medium text-navy-800">{item.companyName}</td>
                   <td className="max-w-[280px] truncate">
@@ -364,6 +383,15 @@ export default function AdminProfitsPage() {
   const [data, setData] = useState<ProfitData | null>(null)
   const [expenseForms, setExpenseForms] = useState<Record<string, UserExpense>>({})
   const [savingExpenseId, setSavingExpenseId] = useState("")
+  const [manualProfitForm, setManualProfitForm] = useState({
+    userId: "",
+    profitDate: monthStartDate(currentMonth()),
+    title: "",
+    amount: "",
+    memo: "",
+  })
+  const [manualProfitSaving, setManualProfitSaving] = useState(false)
+  const [deletingManualProfitId, setDeletingManualProfitId] = useState("")
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
 
@@ -513,9 +541,74 @@ export default function AdminProfitsPage() {
     }
   }
 
+  const updateManualProfitField = (field: keyof typeof manualProfitForm, value: string) => {
+    setManualProfitForm(prev => ({ ...prev, [field]: value }))
+  }
+
+  const saveManualProfit = async () => {
+    const userId = manualProfitForm.userId || assignedUserId || users[0]?.id || ""
+    if (!userId) {
+      showToast("担当者を選択してください", false)
+      return
+    }
+    setManualProfitSaving(true)
+    try {
+      const res = await fetch("/api/manual-profits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...manualProfitForm,
+          userId,
+          yearMonth,
+          profitDate: manualProfitForm.profitDate || monthStartDate(yearMonth),
+          amount: parseNumberInput(manualProfitForm.amount),
+        }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? "請求書なし利益の保存に失敗しました")
+      showToast("請求書なし利益を追加しました")
+      setManualProfitForm(prev => ({
+        ...prev,
+        title: "",
+        amount: "",
+        memo: "",
+        profitDate: monthStartDate(yearMonth),
+      }))
+      await fetchData()
+    } catch (error: any) {
+      showToast(error?.message ?? "請求書なし利益の保存に失敗しました", false)
+    } finally {
+      setManualProfitSaving(false)
+    }
+  }
+
+  const deleteManualProfit = async (id: string) => {
+    if (!window.confirm("この請求書なし利益を削除しますか？")) return
+    setDeletingManualProfitId(id)
+    try {
+      const res = await fetch(`/api/manual-profits/${id}`, { method: "DELETE" })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? "請求書なし利益の削除に失敗しました")
+      showToast("請求書なし利益を削除しました")
+      await fetchData()
+    } catch (error: any) {
+      showToast(error?.message ?? "請求書なし利益の削除に失敗しました", false)
+    } finally {
+      setDeletingManualProfitId("")
+    }
+  }
+
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  useEffect(() => {
+    setManualProfitForm(prev => ({
+      ...prev,
+      userId: assignedUserId || prev.userId || users[0]?.id || "",
+      profitDate: prev.profitDate?.startsWith(yearMonth) ? prev.profitDate : monthStartDate(yearMonth),
+    }))
+  }, [assignedUserId, users, yearMonth])
 
   useEffect(() => {
     if (!data?.targetPlan) return
@@ -535,6 +628,7 @@ export default function AdminProfitsPage() {
   }, [assignedUserId, yearMonth, fetchPayoutPreview])
 
   const groups = useMemo(() => data?.groups ?? [], [data])
+  const manualProfits = useMemo(() => data?.manualProfits ?? [], [data])
   const payoutPreviewIsCurrent = Boolean(
     payoutPreview &&
     payoutPreview.userId === assignedUserId &&
@@ -1027,6 +1121,129 @@ export default function AdminProfitsPage() {
         <p className="text-[12px] text-navy-400">
           月次必要粗利は、支払歩合を含む固定費を「1 - 歩合率 - 法人実効税率30.64%」で割って算出しています。年間目標は月次必要粗利の12か月換算です。
         </p>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-[15px] font-semibold text-navy-900">請求書なし利益</h2>
+            <p className="text-[12px] text-navy-400 mt-1">
+              管理手数料など、請求書を作成しない会社利益を担当者別の粗利へ追加できます。
+            </p>
+          </div>
+          <p className="text-[12px] text-navy-400">
+            {yearMonth}{assignedUserId ? " / 選択中の担当者のみ" : ""}
+          </p>
+        </div>
+        <div className="card p-4 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+            <label className="block">
+              <span className="block text-[11px] text-navy-400 mb-1">担当者</span>
+              <select
+                value={manualProfitForm.userId}
+                onChange={event => updateManualProfitField("userId", event.target.value)}
+                className="form-input"
+                disabled={Boolean(assignedUserId)}
+              >
+                <option value="">選択</option>
+                {expenseUsers.map(user => (
+                  <option key={user.id} value={user.id}>{user.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-[11px] text-navy-400 mb-1">計上日</span>
+              <input
+                type="date"
+                value={manualProfitForm.profitDate}
+                onChange={event => updateManualProfitField("profitDate", event.target.value)}
+                className="form-input"
+              />
+            </label>
+            <label className="block md:col-span-2">
+              <span className="block text-[11px] text-navy-400 mb-1">内容</span>
+              <input
+                type="text"
+                value={manualProfitForm.title}
+                onChange={event => updateManualProfitField("title", event.target.value)}
+                className="form-input"
+                placeholder="管理手数料など"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] text-navy-400 mb-1">利益額</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={manualProfitForm.amount}
+                onChange={event => updateManualProfitField("amount", event.target.value)}
+                className="form-input text-right tabular-nums"
+                placeholder="100000"
+              />
+            </label>
+            <div className="flex items-end">
+              <button
+                type="button"
+                className="btn btn-navy w-full"
+                onClick={saveManualProfit}
+                disabled={manualProfitSaving}
+              >
+                <Plus size={14} />
+                {manualProfitSaving ? "追加中..." : "追加"}
+              </button>
+            </div>
+          </div>
+          <label className="block">
+            <span className="block text-[11px] text-navy-400 mb-1">メモ</span>
+            <input
+              type="text"
+              value={manualProfitForm.memo}
+              onChange={event => updateManualProfitField("memo", event.target.value)}
+              className="form-input"
+              placeholder="預り金送金時に相殺、など"
+            />
+          </label>
+        </div>
+        <div className="card overflow-hidden">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>計上日</th>
+                <th>担当者</th>
+                <th>内容</th>
+                <th>メモ</th>
+                <th style={{ textAlign: "right" }}>利益額</th>
+                <th style={{ textAlign: "right" }}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {manualProfits.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="text-center text-navy-400 py-8">この月の請求書なし利益はありません。</td>
+                </tr>
+              ) : manualProfits.map(row => (
+                <tr key={row.id}>
+                  <td className="tabular-nums whitespace-nowrap">{date(row.profitDate)}</td>
+                  <td className="primary">{row.user?.name ?? users.find(user => user.id === row.userId)?.name ?? "未設定"}</td>
+                  <td className="font-medium text-navy-800">{row.title}</td>
+                  <td className="max-w-[320px] truncate text-navy-500">{row.memo || "-"}</td>
+                  <td className="amount text-emerald-700">{yen(row.amount)}</td>
+                  <td className="text-right">
+                    <button
+                      type="button"
+                      className="btn btn-sm bg-white text-red-700 border-red-100 hover:bg-red-50"
+                      onClick={() => deleteManualProfit(row.id)}
+                      disabled={deletingManualProfitId === row.id}
+                    >
+                      <Trash2 size={13} />
+                      {deletingManualProfitId === row.id ? "削除中..." : "削除"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="space-y-3">
