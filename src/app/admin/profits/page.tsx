@@ -1128,7 +1128,7 @@ export default function AdminProfitsPage() {
           <div>
             <h2 className="text-[15px] font-semibold text-navy-900">請求書なし利益</h2>
             <p className="text-[12px] text-navy-400 mt-1">
-              管理手数料など、請求書を作成しない会社利益を担当者別の粗利へ追加できます。
+              管理手数料など、請求書を作成しない会社利益を担当者別の粗利へ追加できます。金額は税抜で入力してください。
             </p>
           </div>
           <p className="text-[12px] text-navy-400">
@@ -1171,14 +1171,14 @@ export default function AdminProfitsPage() {
               />
             </label>
             <label className="block">
-              <span className="block text-[11px] text-navy-400 mb-1">利益額</span>
+              <span className="block text-[11px] text-navy-400 mb-1">利益額（税抜）</span>
               <input
                 type="text"
                 inputMode="numeric"
                 value={manualProfitForm.amount}
                 onChange={event => updateManualProfitField("amount", event.target.value)}
                 className="form-input text-right tabular-nums"
-                placeholder="100000"
+                placeholder="税抜 100000"
               />
             </label>
             <div className="flex items-end">
@@ -1212,7 +1212,7 @@ export default function AdminProfitsPage() {
                 <th>担当者</th>
                 <th>内容</th>
                 <th>メモ</th>
-                <th style={{ textAlign: "right" }}>利益額</th>
+                <th style={{ textAlign: "right" }}>利益額（税抜）</th>
                 <th style={{ textAlign: "right" }}>操作</th>
               </tr>
             </thead>
