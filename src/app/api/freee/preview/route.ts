@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
+import { createClient } from "@supabase/supabase-js"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -30,6 +31,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "データなし", raw: body }, { status: 502 })
   }
 
+  const sb = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+  const issuerCompanyId = (session.user as any).companyId
+  const freeeIds = invoices.map((fi: any) => String(fi.id))
+  const { data: importedRows, error: importedError } = await sb.from("Invoice")
+    .select("sourceId")
+    .eq("source", "freee")
+    .eq("issuerCompanyId", issuerCompanyId)
+    .in("sourceId", freeeIds)
+
+  if (importedError) {
+    return NextResponse.json({ error: "取込状況の確認に失敗しました" }, { status: 500 })
+  }
+  const importedIds = new Set((importedRows ?? []).map(row => String(row.sourceId)))
+
   const result = invoices.map((fi: any) => ({
     freeeId:       String(fi.id),
     invoiceNumber: fi.invoice_number || `FREEE-${fi.id}`,
@@ -39,6 +57,7 @@ export async function GET(req: NextRequest) {
     dueDate:       fi.payment_date   || null,
     totalAmount:   fi.total_amount   ?? 0,
     status:        fi.payment_status ?? "unsettled",
+    imported:      importedIds.has(String(fi.id)),
   }))
 
   return NextResponse.json(result)

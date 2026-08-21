@@ -221,6 +221,7 @@ export default function AdminInvoicesPage() {
   }
 
   const toggleFreeeId = (id: string) => {
+    if (freeePreview.some(item => item.freeeId === id && item.imported)) return
     setSelectedFreeeIds(prev => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
@@ -1176,11 +1177,11 @@ export default function AdminInvoicesPage() {
               <>
                 <div className="px-6 py-2 border-b border-navy-100 flex items-center justify-between">
                   <span className="text-[12px] text-navy-500">
-                    {freeePreview.length}件取得 / {selectedFreeeIds.size}件選択中
+                    {freeePreview.length}件取得（取込済み {freeePreview.filter(item => item.imported).length}件） / {selectedFreeeIds.size}件選択中
                     {freeeImportMode === "received" && "（ファイルボックス: 未登録）"}
                   </span>
                   <div className="flex gap-3">
-                    <button onClick={() => setSelectedFreeeIds(new Set(freeePreview.map(d => d.freeeId)))}
+                    <button onClick={() => setSelectedFreeeIds(new Set(freeePreview.filter(d => !d.imported).map(d => d.freeeId)))}
                       className="text-[12px] text-blue-600 hover:underline">すべて選択</button>
                     <button onClick={() => setSelectedFreeeIds(new Set())}
                       className="text-[12px] text-navy-400 hover:underline">すべて解除</button>
@@ -1202,14 +1203,23 @@ export default function AdminInvoicesPage() {
                       {freeePreview.map(fi => (
                         <tr key={fi.freeeId}
                           onClick={() => toggleFreeeId(fi.freeeId)}
-                          className={`border-t border-navy-50 cursor-pointer hover:bg-navy-50 transition-colors ${selectedFreeeIds.has(fi.freeeId) ? "bg-blue-50" : ""}`}>
+                          className={`border-t border-navy-50 transition-colors ${fi.imported ? "bg-navy-50/70 cursor-not-allowed" : "cursor-pointer hover:bg-navy-50"} ${selectedFreeeIds.has(fi.freeeId) ? "bg-blue-50" : ""}`}>
                           <td className="px-4 py-2.5">
                             <input type="checkbox" readOnly
                               checked={selectedFreeeIds.has(fi.freeeId)}
-                              className="accent-blue-600" />
+                              disabled={fi.imported}
+                              aria-label={fi.imported ? "取込済み" : `${fi.displayNumber ?? fi.invoiceNumber}を選択`}
+                              className="accent-blue-600 disabled:opacity-40" />
                           </td>
                           <td className="px-4 py-2.5">
-                            <div className="font-medium text-navy-700">{fi.displayNumber ?? fi.invoiceNumber}</div>
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium ${fi.imported ? "text-navy-400" : "text-navy-700"}`}>{fi.displayNumber ?? fi.invoiceNumber}</span>
+                              {fi.imported && (
+                                <span className="shrink-0 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                  取込済み
+                                </span>
+                              )}
+                            </div>
                             {freeeImportMode === "received" && fi.sourceType === "receipt" && (
                               <div className="text-[10px] text-navy-300 font-mono mt-0.5">ファイルNo: {fi.freeeId}</div>
                             )}
