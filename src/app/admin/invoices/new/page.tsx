@@ -303,6 +303,13 @@ export default function NewInvoicePage() {
   const tax      = Math.round(subtotal * (taxRate / 100))
   const total    = subtotal + tax
 
+  useEffect(() => {
+    setSalesBreak(prev => {
+      if (prev.ex === subtotal && prev.inc === total && prev.taxRate === taxRate) return prev
+      return { ex: subtotal, inc: total, taxRate }
+    })
+  }, [subtotal, taxRate, total])
+
   // 粗利の自動計算
   const profitEx   = salesBreak.ex  - costBreak.ex
   const profitInc  = salesBreak.inc - costBreak.inc
@@ -320,6 +327,8 @@ export default function NewInvoicePage() {
       } else if (patch.taxRate !== undefined || patch.ex !== undefined) {
         next.inc = calcInc(next.ex, next.taxRate)
       }
+      setValue("subtotal", next.ex)
+      setValue("taxRate", next.taxRate)
       return next
     })
   }
@@ -362,7 +371,7 @@ export default function NewInvoicePage() {
         notes:         data.notes,
         profit: salesBreak.inc > 0 || costBreak.inc > 0
           ? {
-              sales:          salesBreak.ex,
+              sales:          data.subtotal,
               cost:           costBreak.ex,
               grossProfit:    salesBreak.ex - costBreak.ex,
               profitRate:     salesBreak.ex > 0

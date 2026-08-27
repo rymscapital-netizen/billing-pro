@@ -158,8 +158,8 @@ export default function InvoiceDetailPage() {
 
     // 利益情報の初期値
     const p = inv.profit
-    const sEx  = p?.sales != null ? Number(p.sales) : Number(inv.subtotal)
-    const sTr  = 10
+    const sEx  = Number(inv.subtotal)
+    const sTr  = taxRateVal
     const cEx  = p?.cost  != null ? Number(p.cost)  : 0
     const cTr  = 10
     setSalesBreak({ ex: sEx, inc: calcInc(sEx, sTr), taxRate: sTr })
@@ -208,7 +208,7 @@ export default function InvoiceDetailPage() {
         notes:          editForm.notes,
         assignedUserId: normalizedAssignments[0]?.userId || editForm.assignedUserId,
         assignments:    normalizedAssignments,
-        sales:          salesBreak.ex,
+        sales:          editForm.subtotal,
         cost:           costBreak.ex,
       }),
     })
@@ -283,6 +283,7 @@ export default function InvoiceDetailPage() {
       const next = { ...prev, ...patch }
       if (patch.incChanged) next.ex = calcEx(next.inc, next.taxRate)
       else if (patch.taxRate !== undefined || patch.ex !== undefined) next.inc = calcInc(next.ex, next.taxRate)
+      setEditForm(form => ({ ...form, subtotal: next.ex, taxRate: next.taxRate }))
       return next
     })
   }
@@ -430,6 +431,12 @@ export default function InvoiceDetailPage() {
   // ─── computed ────────────────────────────────────────────────
   const editTax   = Math.round(editForm.subtotal * (editForm.taxRate / 100))
   const editTotal = editForm.subtotal + editTax
+  useEffect(() => {
+    setSalesBreak(prev => {
+      if (prev.ex === editForm.subtotal && prev.inc === editTotal && prev.taxRate === editForm.taxRate) return prev
+      return { ex: editForm.subtotal, inc: editTotal, taxRate: editForm.taxRate }
+    })
+  }, [editForm.subtotal, editForm.taxRate, editTotal])
   const profitEx   = salesBreak.ex  - costBreak.ex
   const profitInc  = salesBreak.inc - costBreak.inc
   const profitTax  = profitInc - profitEx

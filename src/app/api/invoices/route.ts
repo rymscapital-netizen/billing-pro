@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth"
+import { calculateInvoiceProfit } from "@/lib/commission"
 import { prisma } from "@/lib/prisma"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
@@ -157,6 +158,9 @@ export async function POST(req: NextRequest) {
   const u = session.user as any
   const assignments = normalizeAssignments(body.assignments, body.assignedUserId)
   const primaryAssignedUserId = assignments[0]?.userId ?? body.assignedUserId ?? null
+  const canonicalProfit = body.profit
+    ? calculateInvoiceProfit(body.subtotal, body.profit.cost)
+    : null
 
   const invoice = await (prisma.invoice.create as any)({
     data: {
@@ -172,12 +176,12 @@ export async function POST(req: NextRequest) {
       amount,
       status:          "ISSUED",
       notes:           body.notes,
-      profit: body.profit ? {
+      profit: canonicalProfit ? {
         create: {
-          sales:       body.profit.sales,
-          cost:        body.profit.cost,
-          grossProfit: body.profit.grossProfit,
-          profitRate:  body.profit.profitRate,
+          sales:       canonicalProfit.sales,
+          cost:        canonicalProfit.cost,
+          grossProfit: canonicalProfit.grossProfit,
+          profitRate:  canonicalProfit.profitRate,
         }
       } : undefined,
       payments: {

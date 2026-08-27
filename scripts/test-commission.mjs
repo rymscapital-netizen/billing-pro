@@ -1,5 +1,20 @@
 import assert from "node:assert/strict"
-import { calculateProjectGrossProfit } from "../src/lib/commission.ts"
+import { calculateInvoiceProfit, calculateProjectGrossProfit } from "../src/lib/commission.ts"
+
+assert.deepEqual(calculateInvoiceProfit(90_910, 64_718), {
+  sales: 90_910,
+  cost: 64_718,
+  grossProfit: 26_192,
+  profitRate: (26_192 / 90_910) * 100,
+})
+
+const oneYenMismatch = calculateProjectGrossProfit({
+  subtotal: 90_910,
+  profit: { sales: 90_909, cost: 64_718 },
+})
+
+assert.equal(oneYenMismatch.sales, 90_910)
+assert.equal(oneYenMismatch.grossProfit, 26_192)
 
 const fukuoka = calculateProjectGrossProfit({
   subtotal: 90_909,

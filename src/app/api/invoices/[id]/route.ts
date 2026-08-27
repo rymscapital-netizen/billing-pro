@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth"
-import { calculateProjectGrossProfit } from "@/lib/commission"
+import { calculateInvoiceProfit, calculateProjectGrossProfit } from "@/lib/commission"
 import { prisma } from "@/lib/prisma"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
@@ -12,11 +12,15 @@ function getSb() {
 }
 
 function normalizeInvoice(row: any) {
+  const storedProfit = Array.isArray(row.profit) ? (row.profit[0] ?? null) : row.profit
+  const canonicalProfit = storedProfit
+    ? { ...storedProfit, ...calculateInvoiceProfit(row.subtotal, storedProfit.cost) }
+    : null
   return {
     ...row,
     company: Array.isArray(row.company) ? (row.company[0] ?? null) : row.company,
     payments: Array.isArray(row.payments) ? row.payments : [],
-    profit: Array.isArray(row.profit) ? (row.profit[0] ?? null) : row.profit,
+    profit: canonicalProfit,
     projectExpenses: Array.isArray(row.projectExpenses) ? row.projectExpenses : [],
     assignedUser: Array.isArray(row.assignedUser)
       ? (row.assignedUser[0] ?? null)
@@ -171,15 +175,14 @@ export async function PATCH(
     updated.assignments = normalizedAssignments.map(assignment => ({ ...assignment, invoiceId: id }))
   }
 
-  if (body.cost !== undefined || body.sales !== undefined) {
-    const sales = body.sales !== undefined
-      ? Number(body.sales)
-      : Number(updated.profit?.sales ?? updated.subtotal ?? inv.subtotal)
+  if (body.cost !== undefined || body.sales !== undefined || body.subtotal !== undefined) {
+    // Invoice subtotal is the canonical tax-exclusive sales amount. Keeping a
+    // second independently rounded sales value causes one-yen discrepancies.
+    const sales = Number(updated.subtotal ?? inv.subtotal)
     const cost = body.cost !== undefined
       ? Number(body.cost)
       : Number(updated.profit?.cost ?? 0)
-    const grossProfit = sales - cost
-    const profitRate = sales > 0 ? (grossProfit / sales) * 100 : 0
+    const { grossProfit, profitRate } = calculateInvoiceProfit(sales, cost)
     const now = new Date().toISOString()
 
     const { data: existingProfit, error: profitFindError } = await sb.from("InvoiceProfit")

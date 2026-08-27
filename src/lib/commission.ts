@@ -54,6 +54,18 @@ export function taxExcludedFromIncluded(amount: unknown, taxRate: unknown = 10) 
   return Math.round(total / (1 + Math.max(rate, 0) / 100))
 }
 
+export function calculateInvoiceProfit(salesValue: unknown, costValue: unknown) {
+  const sales = Number(salesValue ?? 0)
+  const cost = Number(costValue ?? 0)
+  const grossProfit = sales - cost
+  return {
+    sales,
+    cost,
+    grossProfit,
+    profitRate: sales > 0 ? (grossProfit / sales) * 100 : 0,
+  }
+}
+
 export function calculateProjectGrossProfit(row: any) {
   const profit = Array.isArray(row.profit) ? row.profit[0] : row.profit
   const receivedInvoices = Array.isArray(row.linkedReceivedInvoices)
@@ -62,7 +74,11 @@ export function calculateProjectGrossProfit(row: any) {
       ? row.receivedInvoices
       : []
   const projectExpenses = Array.isArray(row.projectExpenses) ? row.projectExpenses : []
-  const sales = profit ? Number(profit.sales ?? 0) : Number(row.subtotal ?? 0)
+  const sales = row.subtotal != null
+    ? Number(row.subtotal)
+    : profit
+      ? Number(profit.sales ?? 0)
+      : 0
   const receivedCost = receivedInvoices.reduce(
     (sum: number, invoice: any) => sum + taxExcludedFromIncluded(invoice.amount, 10),
     0
