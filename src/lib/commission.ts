@@ -71,8 +71,12 @@ export function calculateProjectGrossProfit(row: any) {
     (sum: number, expense: any) => sum + taxExcludedFromIncluded(expense.amount, expense.taxRate),
     0
   )
-  const manualCost = profit ? Math.max(Number(profit.cost ?? 0) - receivedCost, 0) : 0
-  const cost = receivedCost + extraCost + manualCost
+  const trackedCost = receivedCost + extraCost
+  // InvoiceProfit.cost is synchronized with linked invoices and project expenses.
+  // Only the part above those tracked costs can be treated as a manual cost;
+  // otherwise the same project expense is counted once from each source.
+  const manualCost = profit ? Math.max(Number(profit.cost ?? 0) - trackedCost, 0) : 0
+  const cost = trackedCost + manualCost
   return {
     sales,
     receivedCost,
