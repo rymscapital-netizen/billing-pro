@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth"
-import { COMMISSION_TIERS, calculateIruchijimaCommissionableGrossProfit, calculateProjectGrossProfit, IRUCHIJIMA_COMMISSION_START_MONTH, IRUCHIJIMA_COMMISSION_USER_NAME, resolveCommissionRate, type CommissionMode } from "@/lib/commission"
+import { COMMISSION_TIERS, calculateIruchijimaCommissionableGrossProfit, calculateProjectGrossProfit, IRUCHIJIMA_COMMISSION_START_MONTH, IRUCHIJIMA_COMMISSION_USER_ID, resolveCommissionRate, type CommissionMode } from "@/lib/commission"
 import { canViewInternalReports } from "@/lib/internal-access"
 import { sortUsersByDisplayOrder, userSortRank } from "@/lib/user-order"
 import { createClient } from "@supabase/supabase-js"
@@ -1039,7 +1039,7 @@ export async function GET(req: NextRequest) {
 
     // This rule is intentionally restricted to the one named user. Build the
     // carry-forward month by month so both the summary and payout preview agree.
-    for (const specialUser of (rentUsers as any[]).filter((user: any) => user.name === IRUCHIJIMA_COMMISSION_USER_NAME)) {
+    for (const specialUser of (rentUsers as any[]).filter((user: any) => user.id === IRUCHIJIMA_COMMISSION_USER_ID)) {
       if (yearMonth < IRUCHIJIMA_COMMISSION_START_MONTH) continue
       const monthlyGroups = fiscalMonths.map(monthStart => {
         const key = formatYearMonth(monthStart)
@@ -1059,9 +1059,14 @@ export async function GET(req: NextRequest) {
         const historyRow = history.find((row: any) => row.month === month.yearMonth)
         if (historyRow && sourceGroup) {
           historyRow.commissionAmount += correctedCommission - toNumber(sourceGroup.commissionAmount)
+          historyRow.retainedProfit -= correctedCommission
         }
         if (month.yearMonth === yearMonth) {
-          replaceGroupCommission(groups.find((row: any) => row.userId === specialUser.id), correctedCommission)
+          const currentGroup = groups.find((row: any) => row.userId === specialUser.id)
+          replaceGroupCommission(currentGroup, correctedCommission)
+          if (currentGroup) {
+            currentGroup.retainedProfit = currentGroup.grossProfit - currentGroup.totalExpense - correctedCommission
+          }
         }
       })
     }

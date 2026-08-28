@@ -3,7 +3,7 @@ import {
   calculateIruchijimaCommissionableGrossProfit,
   calculateProjectGrossProfit,
   IRUCHIJIMA_COMMISSION_START_MONTH,
-  IRUCHIJIMA_COMMISSION_USER_NAME,
+  IRUCHIJIMA_COMMISSION_USER_ID,
   resolveCommissionRate,
   resolveFiscalRange,
   resolveMonthRange,
@@ -146,7 +146,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     })
   }
 
-  const isIruchijimaSpecialRule = userRow.name === IRUCHIJIMA_COMMISSION_USER_NAME
+  const isIruchijimaSpecialRule = userRow.id === IRUCHIJIMA_COMMISSION_USER_ID
     && yearMonth >= IRUCHIJIMA_COMMISSION_START_MONTH
   const fiscalMonthGrossProfits: { yearMonth: string; grossProfit: number }[] = []
   if (isIruchijimaSpecialRule) {

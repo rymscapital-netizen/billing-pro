@@ -8,7 +8,7 @@ export const COMMISSION_TIERS = [
 
 export type CommissionMode = "STANDARD" | "FIXED" | "TRIAL_20"
 
-export const IRUCHIJIMA_COMMISSION_USER_NAME = "入内嶋博"
+export const IRUCHIJIMA_COMMISSION_USER_ID = "cmnh5s51z0001uhswsz0jqfep"
 export const IRUCHIJIMA_COMMISSION_START_MONTH = "2026-08"
 export const IRUCHIJIMA_MONTHLY_GROSS_PROFIT_BASE = 190_000
 
