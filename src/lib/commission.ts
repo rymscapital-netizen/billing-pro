@@ -23,8 +23,7 @@ export function calculateIruchijimaCommissionableGrossProfit(
     .map(row => {
       const grossProfit = Number(row.grossProfit ?? 0)
       if (row.yearMonth < IRUCHIJIMA_COMMISSION_START_MONTH) {
-        cumulativeCommissionableGrossProfit += grossProfit
-        return { ...row, grossProfit, commissionableGrossProfit: grossProfit, carriedDeficit }
+        return { ...row, grossProfit, commissionableGrossProfit: 0, carriedDeficit }
       }
 
       const balance = grossProfit - IRUCHIJIMA_MONTHLY_GROSS_PROFIT_BASE - carriedDeficit

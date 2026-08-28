@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth"
-import { COMMISSION_TIERS, calculateProjectGrossProfit, resolveCommissionRate, type CommissionMode } from "@/lib/commission"
+import { COMMISSION_TIERS, calculateIruchijimaCommissionableGrossProfit, calculateProjectGrossProfit, IRUCHIJIMA_COMMISSION_START_MONTH, IRUCHIJIMA_COMMISSION_USER_NAME, resolveCommissionRate, type CommissionMode } from "@/lib/commission"
 import { canViewInternalReports } from "@/lib/internal-access"
 import { sortUsersByDisplayOrder, userSortRank } from "@/lib/user-order"
 import { createClient } from "@supabase/supabase-js"
@@ -524,6 +524,21 @@ function groupDueInvoices(
   return addExpenseOnlyGroups(sortGroups(groups, expensesByUserId), users, expensesByUserId)
 }
 
+function replaceGroupCommission(group: any, commissionAmount: number) {
+  if (!group) return
+  group.commissionAmount = commissionAmount
+  const positiveGrossProfit = group.items.reduce(
+    (sum: number, item: any) => sum + Math.max(toNumber(item.grossProfit), 0),
+    0
+  )
+  group.items = group.items.map((item: any) => ({
+    ...item,
+    commissionAmount: positiveGrossProfit > 0
+      ? commissionAmount * Math.max(toNumber(item.grossProfit), 0) / positiveGrossProfit
+      : 0,
+  }))
+}
+
 function buildTotals(sourceGroups: any[]) {
   const totals = sourceGroups.reduce((sum, group) => ({
     sales: sum.sales + group.sales,
@@ -1020,9 +1035,39 @@ export async function GET(req: NextRequest) {
       annualGrossProfitTarget,
     })
     const groups = groupDueInvoices(data ?? [], manualProfits ?? [], expensesByUserId, users, effectiveAssignedUserId)
+    const history = buildHistoryWithRent(historyRows ?? [], historyManualProfits ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, officeRentStartDate, effectiveAssignedUserId)
+
+    // This rule is intentionally restricted to the one named user. Build the
+    // carry-forward month by month so both the summary and payout preview agree.
+    for (const specialUser of (rentUsers as any[]).filter((user: any) => user.name === IRUCHIJIMA_COMMISSION_USER_NAME)) {
+      if (yearMonth < IRUCHIJIMA_COMMISSION_START_MONTH) continue
+      const monthlyGroups = fiscalMonths.map(monthStart => {
+        const key = formatYearMonth(monthStart)
+        const monthRows = (historyRows ?? []).filter((row: any) => formatJstYearMonth(row.dueDate) === key)
+        const monthManualRows = (historyManualProfits ?? []).filter(
+          (row: any) => (row.yearMonth ?? formatJstYearMonth(row.profitDate)) === key
+        )
+        const group = groupDueInvoices(monthRows, monthManualRows, new Map(), rentUsers, specialUser.id)
+          .find((row: any) => row.userId === specialUser.id)
+        return { yearMonth: key, grossProfit: toNumber(group?.grossProfit), group }
+      })
+      const special = calculateIruchijimaCommissionableGrossProfit(monthlyGroups)
+      special.months.forEach((month: any, index: number) => {
+        const sourceGroup = monthlyGroups[index].group
+        const rate = toNumber(sourceGroup?.commissionRate ?? specialUser.commissionRate)
+        const correctedCommission = month.commissionableGrossProfit * rate / 100
+        const historyRow = history.find((row: any) => row.month === month.yearMonth)
+        if (historyRow && sourceGroup) {
+          historyRow.commissionAmount += correctedCommission - toNumber(sourceGroup.commissionAmount)
+        }
+        if (month.yearMonth === yearMonth) {
+          replaceGroupCommission(groups.find((row: any) => row.userId === specialUser.id), correctedCommission)
+        }
+      })
+    }
+
     const totals = buildTotals(groups)
     const groupExpenses = groups.map(group => group.expenses).filter(Boolean)
-    const history = buildHistoryWithRent(historyRows ?? [], historyManualProfits ?? [], fiscalMonths, historyExpenses ?? [], rentUsers, officeRent, officeRentStartDate, effectiveAssignedUserId)
     const fiscalSummary = buildFiscalSummary({
       rows: historyRows ?? [],
       receivedRows: receivedTaxRows ?? [],

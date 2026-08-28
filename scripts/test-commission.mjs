@@ -64,3 +64,11 @@ const iruchijimaWithEmptyMonth = calculateIruchijimaCommissionableGrossProfit([
 ])
 assert.equal(iruchijimaWithEmptyMonth.months[0].carriedDeficit, 190_000)
 assert.equal(iruchijimaWithEmptyMonth.months[1].commissionableGrossProfit, 20_000)
+
+const iruchijimaStartMonth = calculateIruchijimaCommissionableGrossProfit([
+  { yearMonth: "2026-06", grossProfit: 1_000_000 },
+  { yearMonth: "2026-07", grossProfit: 500_000 },
+  { yearMonth: "2026-08", grossProfit: 347_098 },
+])
+assert.equal(iruchijimaStartMonth.cumulativeCommissionableGrossProfit, 157_098)
+assert.equal(iruchijimaStartMonth.months[2].commissionableGrossProfit, 157_098)
