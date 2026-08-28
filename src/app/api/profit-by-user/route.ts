@@ -1058,14 +1058,16 @@ export async function GET(req: NextRequest) {
         const correctedCommission = month.commissionableGrossProfit * rate / 100
         const historyRow = history.find((row: any) => row.month === month.yearMonth)
         if (historyRow && sourceGroup) {
-          historyRow.commissionAmount += correctedCommission - toNumber(sourceGroup.commissionAmount)
-          historyRow.retainedProfit -= correctedCommission
+          const previousCommission = toNumber(sourceGroup.commissionAmount)
+          historyRow.commissionAmount += correctedCommission - previousCommission
+          historyRow.retainedProfit += previousCommission - correctedCommission
         }
         if (month.yearMonth === yearMonth) {
           const currentGroup = groups.find((row: any) => row.userId === specialUser.id)
+          const previousCommission = toNumber(currentGroup?.commissionAmount)
           replaceGroupCommission(currentGroup, correctedCommission)
           if (currentGroup) {
-            currentGroup.retainedProfit = currentGroup.grossProfit - currentGroup.totalExpense - correctedCommission
+            currentGroup.retainedProfit += previousCommission - correctedCommission
           }
         }
       })
