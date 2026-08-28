@@ -206,7 +206,7 @@ export default function InvoiceDetailPage() {
         subtotal:       editForm.subtotal,
         tax,
         notes:          editForm.notes,
-        assignedUserId: normalizedAssignments[0]?.userId || editForm.assignedUserId,
+        assignedUserId: normalizedAssignments[0]?.userId || editForm.assignedUserId || null,
         assignments:    normalizedAssignments,
         sales:          editForm.subtotal,
         cost:           costBreak.ex,

@@ -134,7 +134,7 @@ export async function PATCH(
     ? normalizeAssignments(body.assignments, body.assignedUserId)
     : null
   if (body.assignedUserId !== undefined || normalizedAssignments) {
-    data.assignedUserId = normalizedAssignments?.[0]?.userId ?? body.assignedUserId ?? null
+    data.assignedUserId = normalizedAssignments?.[0]?.userId || body.assignedUserId || null
   }
   if (body.subtotal !== undefined) {
     const tax = body.tax ?? 0

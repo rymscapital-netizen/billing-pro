@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { calculateInvoiceProfit, calculateProjectGrossProfit } from "../src/lib/commission.ts"
+import { calculateInvoiceProfit, calculateIruchijimaCommissionableGrossProfit, calculateProjectGrossProfit } from "../src/lib/commission.ts"
 
 assert.deepEqual(calculateInvoiceProfit(90_910, 64_718), {
   sales: 90_910,
@@ -47,3 +47,20 @@ assert.deepEqual(mixedCosts, {
 })
 
 console.log("commission calculation tests passed")
+
+const iruchijima = calculateIruchijimaCommissionableGrossProfit([
+  { yearMonth: "2026-08", grossProfit: 150_000 },
+  { yearMonth: "2026-09", grossProfit: 300_000 },
+  { yearMonth: "2026-10", grossProfit: 250_000 },
+])
+assert.equal(iruchijima.months[0].carriedDeficit, 40_000)
+assert.equal(iruchijima.months[1].commissionableGrossProfit, 70_000)
+assert.equal(iruchijima.months[2].commissionableGrossProfit, 60_000)
+assert.equal(iruchijima.cumulativeCommissionableGrossProfit, 130_000)
+
+const iruchijimaWithEmptyMonth = calculateIruchijimaCommissionableGrossProfit([
+  { yearMonth: "2027-06", grossProfit: 0 },
+  { yearMonth: "2027-07", grossProfit: 400_000 },
+])
+assert.equal(iruchijimaWithEmptyMonth.months[0].carriedDeficit, 190_000)
+assert.equal(iruchijimaWithEmptyMonth.months[1].commissionableGrossProfit, 20_000)

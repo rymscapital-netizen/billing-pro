@@ -8,6 +8,35 @@ export const COMMISSION_TIERS = [
 
 export type CommissionMode = "STANDARD" | "FIXED" | "TRIAL_20"
 
+export const IRUCHIJIMA_COMMISSION_USER_NAME = "入内嶋博"
+export const IRUCHIJIMA_COMMISSION_START_MONTH = "2026-08"
+export const IRUCHIJIMA_MONTHLY_GROSS_PROFIT_BASE = 190_000
+
+export function calculateIruchijimaCommissionableGrossProfit(
+  monthlyGrossProfits: { yearMonth: string; grossProfit: number }[]
+) {
+  let carriedDeficit = 0
+  let cumulativeCommissionableGrossProfit = 0
+
+  const months = [...monthlyGrossProfits]
+    .sort((a, b) => a.yearMonth.localeCompare(b.yearMonth))
+    .map(row => {
+      const grossProfit = Number(row.grossProfit ?? 0)
+      if (row.yearMonth < IRUCHIJIMA_COMMISSION_START_MONTH) {
+        cumulativeCommissionableGrossProfit += grossProfit
+        return { ...row, grossProfit, commissionableGrossProfit: grossProfit, carriedDeficit }
+      }
+
+      const balance = grossProfit - IRUCHIJIMA_MONTHLY_GROSS_PROFIT_BASE - carriedDeficit
+      const commissionableGrossProfit = Math.max(balance, 0)
+      carriedDeficit = Math.max(-balance, 0)
+      cumulativeCommissionableGrossProfit += commissionableGrossProfit
+      return { ...row, grossProfit, commissionableGrossProfit, carriedDeficit }
+    })
+
+  return { months, carriedDeficit, cumulativeCommissionableGrossProfit }
+}
+
 export function resolveFiscalYearStartMonth(yearMonth: string) {
   const [year, month] = yearMonth.split("-").map(Number)
   const startYear = month >= 6 ? year : year - 1

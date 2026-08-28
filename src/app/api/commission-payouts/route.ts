@@ -1,6 +1,9 @@
 import { auth } from "@/lib/auth"
 import {
+  calculateIruchijimaCommissionableGrossProfit,
   calculateProjectGrossProfit,
+  IRUCHIJIMA_COMMISSION_START_MONTH,
+  IRUCHIJIMA_COMMISSION_USER_NAME,
   resolveCommissionRate,
   resolveFiscalRange,
   resolveMonthRange,
@@ -53,7 +56,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
   const month = resolveMonthRange(yearMonth)
   const closingDate = formatMonthEnd(yearMonth)
   const { data: userRow, error: userError } = await sb.from("User")
-    .select("id, commissionMode, commissionRate")
+    .select("id, name, commissionMode, commissionRate")
     .eq("id", userId)
     .eq("companyId", companyId)
     .maybeSingle()
@@ -88,6 +91,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
 
   let cumulativeGrossProfit = 0
   let monthGrossProfit = 0
+  const grossProfitByMonth = new Map<string, number>()
   let commissionMode = userRow.commissionMode ?? "STANDARD"
   let fixedCommissionRate = toNumber(userRow.commissionRate)
   const items: any[] = []
@@ -111,6 +115,8 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     const share = assignment.shareRate / 100
     const grossProfit = project.grossProfit * share
     cumulativeGrossProfit += grossProfit
+    const invoiceMonth = String(invoice.dueDate).slice(0, 7)
+    grossProfitByMonth.set(invoiceMonth, (grossProfitByMonth.get(invoiceMonth) ?? 0) + grossProfit)
     if (invoice.dueDate >= month.start && invoice.dueDate < month.endExclusive) {
       monthGrossProfit += grossProfit
     }
@@ -126,6 +132,8 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
   for (const row of manualProfits ?? []) {
     const grossProfit = toNumber(row.amount)
     cumulativeGrossProfit += grossProfit
+    const manualMonth = row.yearMonth ?? String(row.profitDate).slice(0, 7)
+    grossProfitByMonth.set(manualMonth, (grossProfitByMonth.get(manualMonth) ?? 0) + grossProfit)
     if (row.profitDate >= month.start && row.profitDate < month.endExclusive) {
       monthGrossProfit += grossProfit
     }
@@ -138,8 +146,26 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     })
   }
 
+  const isIruchijimaSpecialRule = userRow.name === IRUCHIJIMA_COMMISSION_USER_NAME
+    && yearMonth >= IRUCHIJIMA_COMMISSION_START_MONTH
+  const fiscalMonthGrossProfits: { yearMonth: string; grossProfit: number }[] = []
+  if (isIruchijimaSpecialRule) {
+    let cursor = fiscal.fiscalYearStartMonth
+    while (cursor <= yearMonth) {
+      fiscalMonthGrossProfits.push({ yearMonth: cursor, grossProfit: grossProfitByMonth.get(cursor) ?? 0 })
+      const [cursorYear, cursorMonth] = cursor.split("-").map(Number)
+      cursor = cursorMonth === 12
+        ? `${cursorYear + 1}-01`
+        : `${cursorYear}-${String(cursorMonth + 1).padStart(2, "0")}`
+    }
+  }
+  const specialCalculation = isIruchijimaSpecialRule
+    ? calculateIruchijimaCommissionableGrossProfit(fiscalMonthGrossProfits)
+    : null
+  const cumulativeCommissionableGrossProfit = specialCalculation?.cumulativeCommissionableGrossProfit
+    ?? cumulativeGrossProfit
   const commissionRate = resolveCommissionRate(cumulativeGrossProfit, commissionMode as any, fixedCommissionRate)
-  const cumulativeCommissionAmount = Math.round(cumulativeGrossProfit * (commissionRate / 100))
+  const cumulativeCommissionAmount = Math.round(cumulativeCommissionableGrossProfit * (commissionRate / 100))
 
   const { data: priorPayouts, error: payoutError } = await sb.from("CommissionPayout")
     .select("payoutAmount, yearMonth")
@@ -149,7 +175,7 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     .lt("yearMonth", yearMonth)
   if (payoutError) throw new Error(payoutError.message)
   const priorPaidAmount = (priorPayouts ?? []).reduce((sum: number, row: any) => sum + toNumber(row.payoutAmount), 0)
-  const isCatchUpMode = commissionMode === "STANDARD"
+  const isCatchUpMode = commissionMode === "STANDARD" || isIruchijimaSpecialRule
   const payoutAmount = isCatchUpMode
     ? Math.max(cumulativeCommissionAmount - priorPaidAmount, 0)
     : Math.round(monthGrossProfit * (commissionRate / 100))
@@ -170,6 +196,9 @@ async function buildPreview(sb: ReturnType<typeof getSb>, companyId: string, use
     commissionMode,
     monthGrossProfit: Math.round(monthGrossProfit),
     cumulativeGrossProfit: Math.round(cumulativeGrossProfit),
+    cumulativeCommissionableGrossProfit: Math.round(cumulativeCommissionableGrossProfit),
+    carriedDeficit: Math.round(specialCalculation?.carriedDeficit ?? 0),
+    specialCommissionRuleApplied: isIruchijimaSpecialRule,
     commissionRate,
     cumulativeCommissionAmount,
     priorPaidAmount: Math.round(priorPaidAmount),
