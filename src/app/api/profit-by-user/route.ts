@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth"
-import { COMMISSION_TIERS, calculateIruchijimaCommissionableGrossProfit, calculateProjectGrossProfit, IRUCHIJIMA_COMMISSION_START_MONTH, IRUCHIJIMA_COMMISSION_USER_ID, resolveCommissionRate, type CommissionMode } from "@/lib/commission"
+import { COMMISSION_TIERS, calculateIruchijimaCommissionableGrossProfit, calculateProjectGrossProfit, IRUCHIJIMA_COMMISSION_START_MONTH, IRUCHIJIMA_COMMISSION_USER_ID, IRUCHIJIMA_MONTHLY_BASE_SALARY, resolveCommissionRate, type CommissionMode } from "@/lib/commission"
 import { canViewInternalReports } from "@/lib/internal-access"
 import { sortUsersByDisplayOrder, userSortRank } from "@/lib/user-order"
 import { createClient } from "@supabase/supabase-js"
@@ -157,6 +157,26 @@ function applyOfficeRentToExpenses(expenses: any[], users: any[], yearMonth: str
       }
     }
     byUserId.set(user.id, current)
+  }
+
+  if (yearMonth >= IRUCHIJIMA_COMMISSION_START_MONTH) {
+    const specialExpense = byUserId.get(IRUCHIJIMA_COMMISSION_USER_ID)
+    if (specialExpense) {
+      byUserId.set(IRUCHIJIMA_COMMISSION_USER_ID, {
+        ...specialExpense,
+        baseSalary: IRUCHIJIMA_MONTHLY_BASE_SALARY,
+        socialInsurance: 0,
+        employeeSocialInsurance: 0,
+        withholdingTax: 0,
+        paidCommission: 0,
+        travelExpense: 0,
+        communicationCost: 0,
+        welfareExpense: 0,
+        suppliesExpense: 0,
+        otherExpense: 0,
+        otherMemo: "",
+      })
+    }
   }
 
   const allocations = buildRentAllocations(users, yearMonth, officeRent, officeRentStartDate)
@@ -1060,14 +1080,13 @@ export async function GET(req: NextRequest) {
         if (historyRow && sourceGroup) {
           const previousCommission = toNumber(sourceGroup.commissionAmount)
           historyRow.commissionAmount += correctedCommission - previousCommission
-          historyRow.retainedProfit += previousCommission - correctedCommission
+          historyRow.retainedProfit -= correctedCommission
         }
         if (month.yearMonth === yearMonth) {
           const currentGroup = groups.find((row: any) => row.userId === specialUser.id)
-          const previousCommission = toNumber(currentGroup?.commissionAmount)
           replaceGroupCommission(currentGroup, correctedCommission)
           if (currentGroup) {
-            currentGroup.retainedProfit += previousCommission - correctedCommission
+            currentGroup.retainedProfit = currentGroup.grossProfit - currentGroup.totalExpense - correctedCommission
           }
         }
       })

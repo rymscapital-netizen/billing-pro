@@ -11,6 +11,7 @@ export type CommissionMode = "STANDARD" | "FIXED" | "TRIAL_20"
 export const IRUCHIJIMA_COMMISSION_USER_ID = "cmnh5s51z0001uhswsz0jqfep"
 export const IRUCHIJIMA_COMMISSION_START_MONTH = "2026-08"
 export const IRUCHIJIMA_MONTHLY_GROSS_PROFIT_BASE = 190_000
+export const IRUCHIJIMA_MONTHLY_BASE_SALARY = 190_000
 
 export function calculateIruchijimaCommissionableGrossProfit(
   monthlyGrossProfits: { yearMonth: string; grossProfit: number }[]
